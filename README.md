@@ -14,7 +14,14 @@ load-test to generate data.
 ```
 
 The anomalizer backend serves on port 8056.  There are various rest
-endpoints, some of which are used by the anomalizer-ui.
+endpoints, some of which are used by the anomalizer-ui.  It connects to prometheus
+on localhost:9090 by default: this can be overridden in the yaml compose file or 
+on the command line by setting the PROMETHEUS environment variable.  
+
+```
+environment:
+- PROMETHEUS=host.docker.internal:9090
+```
 
 * http://localhost:8056/server-metrics
 * http://localhost:8056/images/html

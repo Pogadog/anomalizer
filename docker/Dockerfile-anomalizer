@@ -1,0 +1,14 @@
+FROM python:3.8.12
+
+COPY python/requirements.txt .
+RUN pip install -r requirements.txt
+EXPOSE 8056
+
+ENV PROMETHEUS "host.docker.internal:9090"
+COPY python/anomalizer.py .
+
+USER 1000
+
+LABEL org.opencontainers.image.source https://github.com/pogadog/anomalizer
+
+CMD python -u anomalizer.py

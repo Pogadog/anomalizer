@@ -1,0 +1,38 @@
+version: "2"
+services:
+
+  # anomalizer
+  anomalizer:
+    image: ghcr.io/pogadog/anomalizer-arm64:latest
+    ports:
+      - "8056:8056"
+    environment:
+      #- PROMETHEUS=mini-prom:9091'
+      - PROMETHEUS=host.docker.internal:9090
+    depends_on:
+      - prometheus
+      #- mini-prom
+
+  # anomalizer-ui
+  anomalizer-ui:
+    image: ghcr.io/pogadog/anomalizer-ui-arm64:latest
+    environment:
+      - ENDPOINT=localhost:8056
+      - PORT=3001
+    ports:
+      - "3001:3001"
+
+  load-test:
+    image: ghcr.io/simontuffs/load-test-arm64:latest
+    ports:
+      - "7070:7070"
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+

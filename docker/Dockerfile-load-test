@@ -1,0 +1,12 @@
+FROM python:3.8.12
+
+COPY python/requirements.txt .
+RUN pip install -r requirements.txt
+
+EXPOSE 7070
+
+COPY python/load-test.py .
+
+LABEL org.opencontainers.image.source="https://github.com/pogadog/anomalizer"
+
+CMD python -u load-test.py

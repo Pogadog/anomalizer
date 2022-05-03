@@ -95,5 +95,9 @@ this with "Similar metrics" to find metrics which relate to the trending metrics
 
 ![](images/heap-pin.png)
 
-*
+* checkout scattergrams which are exhibiting hockey-stick behavior (this is a simulated load-test
+with a 10 request/second constraint and up to 20 client threads accessing it).
+
+![](images/hockey-stick.png)
+
 

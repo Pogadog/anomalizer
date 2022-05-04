@@ -1,21 +1,22 @@
-# Anomalizer (Prometheus Anomaly Visualization)
+# Anomalizer - Prometheus Anomaly Visualization [Prototype]
 
 The Anomalizer is a proof-of-concept visualization tool for Prometheus.
-It operates by scraping metrics out of Prometheus, generating images, analyzing them for behavior (increasing, decreasing, noisy) and visualization
+It operates by scraping metrics out of Prometheus, generating images, analyzing them for behavior (increasing, decreasing, noisy) and visualizing them
 (spark-lines & scattergrams).
 
 ## Quick Start
 Use `docker-compose` to launch a Prometheus engine, `anomalizer`, `anomalizer-ui` and a
-load-test to generate data.
+`load-test` to generate data.
 ```sh
   cd docker
-  ./docker-up.sh (launches anomalizer-compose.yaml)
+  ./docker-up.sh 
+  # launches docker/anomalizer-compose.yaml
 
 ```
 
-The Anomalizer backend serves on port 8056. There are various REST
+The Anomalizer backend serves on port `8056`. There are various REST
 endpoints, some of which are used by the Anomalizer UI. It connects to Prometheus
-on `localhost:9090` by default; this can be overridden in the yaml compose file or 
+on `localhost:9090` by default; this can be overridden in the YAML compose file `docker/anomalizer-compose.yaml` or 
 on the command line by setting the `PROMETHEUS` environment variable. 
 
 ```yaml
@@ -27,7 +28,7 @@ environment:
 * http://localhost:8056/images/html
 * http://localhost:8056/images
 
-## Debugging on a desktop machine.
+## Debugging on a desktop machine
 
 Simply load the `anomalizer.py` file into a Python IDE environment, after installing the
 `requirements.txt` into a virtual-env (such as pyenv). Make sure to stop the Docker version 
@@ -67,7 +68,7 @@ Anomalizer UI.
 
 ![](images/html-view.png)
 
-## anomalizer-UI
+## Anomalizer UI
 
 The simplest way to run the Anomalizer UI is with Docker in stand-alone mode. The following
 example uses the arm64 build for anomalizer, so will only work on apple-silicon mac for now:
@@ -79,11 +80,11 @@ a multi-arch build is in the works.
 
 Alternatively you can run the UI by following the instructions here: https://github.com/Pogadog/anomalizer-ui
 
-## Kicking the tires.
+## Kicking the tires
 
 Here are some of the ways you can manipulate data in the Anomalizer UI:
 
-* Use the "Similar metrics" (1) view to pick a metric (2) and find similars (3).
+* Use the "Similar metrics" (1) view to pick a metric (2) and find similars (3)
 
 ![](images/correlation.png)
 
@@ -92,17 +93,16 @@ this with "Similar metrics" to find metrics which relate to the trending metrics
 
 ![](images/increasing.png)
 
-* Use a regex filter to pick only metrics relating to heap-size. Observe that some are decreasing,
-* some have high variance (red-border), some have medium variance (orange border)
+* Use a regex filter to pick only metrics relating to heap-size. Observe that some are decreasing, some have high variance (red-border), some have medium variance (orange border).
 
 ![](images/heap.png)
 
-* pick one of the heap metrics and find similars: the similars pane will show metrics other than
+* Pick one of the heap metrics and find similars: the similars pane will show metrics other than
 "heap" which are related. Interesting metrics can be pinned to the front of the list.
 
 ![](images/heap-pin.png)
 
-* checkout scattergrams which are exhibiting hockey-stick behavior (this is a simulated load-test
+* Checkout scattergrams which are exhibiting hockey-stick behavior (this is a simulated load-test
 with a 10 request/second constraint and up to 20 client threads accessing it).
 
 ![](images/hockey-stick.png)

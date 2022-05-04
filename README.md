@@ -5,20 +5,20 @@ It operates by scraping metrics out of Prometheus, generating images, analyzing 
 (spark-lines & scattergrams).
 
 ## Quick Start
-use docker-compose to launch a prometheus engine, anomalizer, anomalizer-ui and a
+Use `docker-compose` to launch a Prometheus engine, `anomalizer`, `anomalizer-ui` and a
 load-test to generate data.
-```
+```sh
   cd docker
   ./docker-up.sh (launches anomalizer-compose.yaml)
 
 ```
 
-The anomalizer backend serves on port 8056.  There are various rest
-endpoints, some of which are used by the anomalizer-ui.  It connects to prometheus
-on localhost:9090 by default: this can be overridden in the yaml compose file or 
-on the command line by setting the PROMETHEUS environment variable.  
+The Anomalizer backend serves on port 8056. There are various REST
+endpoints, some of which are used by the Anomalizer UI. It connects to Prometheus
+on `localhost:9090` by default; this can be overridden in the yaml compose file or 
+on the command line by setting the `PROMETHEUS` environment variable. 
 
-```
+```yaml
 environment:
 - PROMETHEUS=host.docker.internal:9090
 ```
@@ -29,9 +29,9 @@ environment:
 
 ## Debugging on a desktop machine.
 
-Simply load the anomalizer.py file into a python IDE environment, after installing the
-requirements.txt into a virtual-env (such as pyenv). Make sure to stop the docker version 
-of the anomalizer before running the stand-alone version.
+Simply load the `anomalizer.py` file into a Python IDE environment, after installing the
+`requirements.txt` into a virtual-env (such as pyenv). Make sure to stop the Docker version 
+of the Anomalizer before running the stand-alone version.
 
 ```
     pyenv install 3.8
@@ -39,7 +39,7 @@ of the anomalizer before running the stand-alone version.
     pip install -r requirements.txt
     python anomalizer.py
      
-Anomalizer(TM) by Pogadog. Copyright (C) 2022. All Rights Reserverd.
+Anomalizer(TM) by Pogadog. Copyright (C) 2022. All Rights Reserved.
 prometheus is on: http://localhost:9090
 FILTER=, LIMIT=1e-09
 poller starting...
@@ -53,23 +53,23 @@ ignoring boring scattergram for engine_daemon_container_actions_seconds: 73c2fe0
 ignoring boring scattergram for engine_daemon_container_actions_seconds: 73c2fe09-9717-4a83-ae69-9b58eeb3a6ab.scatter.3
 ```
 
-The rendering and "ignoring boring" messages show how the anomalizer is processing each metric
-which is loaded from prometheus.
+The rendering and "ignoring boring" messages show how the Anomalizer is processing each metric
+which is loaded from Prometheus.
 
 ### images/html
 
 A simple dump of all the images for the metrics that are in memory can be initiated by querying
-the http://localhost:8056/images/html.  The following kind of display will be rendered.
+the http://localhost:8056/images/html. The following kind of display will be rendered.
 
-This is useful to verify that the anomalizer engine is processing metrics, but is not 
-that usable since it cannot be filtered or sorted.  That activity is the job of the 
-anomalizer UI.
+This is useful to verify that the Anomalizer engine is processing metrics, but is not 
+that usable since it cannot be filtered or sorted. That activity is the job of the 
+Anomalizer UI.
 
 ![](images/html-view.png)
 
 ## anomalizer-UI
 
-The simplest way to run the anomalizer-ui is with docker in stand-alone mode.  The following
+The simplest way to run the Anomalizer UI is with Docker in stand-alone mode. The following
 example uses the arm64 build for anomalizer, so will only work on apple-silicon mac for now:
 a multi-arch build is in the works.
 
@@ -79,15 +79,15 @@ a multi-arch build is in the works.
 
 Alternatively you can run the UI by following the instructions here: https://github.com/Pogadog/anomalizer-ui
 
-## kicking the tires.
+## Kicking the tires.
 
-Here are some of the ways you can manipulate data in the Anomalizer-UI:
+Here are some of the ways you can manipulate data in the Anomalizer UI:
 
 * Use the "Similar metrics" (1) view to pick a metric (2) and find similars (3).
 
 ![](images/correlation.png)
 
-* pick increasing and decreasing to see the metrics which are exhibiting trends. Combine
+* Pick increasing and decreasing to see the metrics which are exhibiting trends. Combine
 this with "Similar metrics" to find metrics which relate to the trending metrics.
 
 ![](images/increasing.png)

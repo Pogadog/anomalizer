@@ -1,6 +1,6 @@
 # Anomalizer - Prometheus Anomaly Visualization [Prototype]
 
-The Anomalizer is a proof-of-concept visualization tool for Prometheus.
+The Anomalizer(TM) is a proof-of-concept visualization tool for Prometheus.
 It operates by scraping metrics out of Prometheus, generating images, analyzing them for behavior (increasing, decreasing, noisy) and visualizing them
 (spark-lines & scattergrams).
 
@@ -71,10 +71,10 @@ Anomalizer UI.
 ## Anomalizer UI
 
 The simplest way to run the Anomalizer UI is with Docker in stand-alone mode. The following
-example uses the arm64 build for anomalizer, so will only work on apple-silicon mac for now:
+example uses the arm64 build for Anomalizer, so will only work on Apple-silicon mac for now:
 a multi-arch build is in the works.
 
-```
+```sh
     docker run -e ENDPOINT=localhost:8056 -p 3001:3001 -it ghcr.io/pogadog/anomalizer-ui-arm64:latest
 ```
 

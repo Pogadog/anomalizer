@@ -49,7 +49,7 @@ warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
 import logging
 logging.getLogger("werkzeug").disabled = True
 
-print('Anomalizer(TM) by Pogadog. Copyright (C) 2022. All Rights Reserverd.')
+print('Anomalizer(TM) by Pogadog. Copyright (C) 2022. All Rights Reserved.')
 
 TYPES = ['', 'counter', 'gauge', 'histogram', 'summary']
 TYPE = TYPES[0]

@@ -1,10 +1,9 @@
-# Anomalizer - Prometheus Anomaly Visualization [Prototype]
+# Anomalizer - Prometheus anomaly visualization [Prototype]
 
 The Anomalizer(TM) is a proof-of-concept visualization tool for Prometheus.
-It operates by scraping metrics out of Prometheus, generating images, analyzing them for behavior (increasing, decreasing, noisy) and visualizing them
-(spark-lines & scattergrams).
+It operates by scraping metrics out of Prometheus, generating images, analyzing them for behavior (increasing, decreasing, noisy) and visualizing them (spark-lines & scattergrams).
 
-## Quick Start
+## Quick start
 Use `docker-compose` to launch a Prometheus engine, `anomalizer`, `anomalizer-ui` and a
 `load-test` to generate data.
 ```sh
@@ -63,7 +62,7 @@ A simple dump of all the images for the metrics that are in memory can be initia
 the http://localhost:8056/images/html. The following kind of display will be rendered.
 
 This is useful to verify that the Anomalizer engine is processing metrics, but is not 
-that usable since it cannot be filtered or sorted. That activity is the job of the 
+that usable since it cannot be filtered or sorted; that activity is the job of the 
 Anomalizer UI.
 
 ![](images/html-view.png)
@@ -84,7 +83,7 @@ Alternatively you can run the UI by following the instructions here: https://git
 
 Here are some of the ways you can manipulate data in the Anomalizer UI:
 
-* Use the "Similar metrics" (1) view to pick a metric (2) and find similars (3)
+* Use the "Similar metrics" (1) view to pick a metric (2) and find similars (3).
 
 ![](images/correlation.png)
 

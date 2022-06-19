@@ -9,9 +9,9 @@ docker tag anomalizer-arm64 ghcr.io/pogadog/anomalizer-arm64:latest
 docker push ghcr.io/pogadog/anomalizer-arm64:latest
 
 # built on mac-m1: load tester to generate metrics for anomalizer to analyze.
-docker tag load-test-arm64 ghcr.io/pogadog/load-test-arm64:latest
-docker push ghcr.io/pogadog/load-test-arm64:latest
+docker tag anomalizer-load-test-arm64 ghcr.io/pogadog/anomalizer-load-test-arm64:latest
+docker push ghcr.io/pogadog/anomalizer-load-test-arm64:latest
 
-#docker tag mini-prom ghcr.io/simontuffs/mini-prom:latest
+#docker tag mini-prom ghcr.io/pogadog//mini-prom:latest
 #docker push ghcr.io/simontuffs/mini-prom:latest
 

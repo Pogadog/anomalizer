@@ -563,9 +563,11 @@ def _params(type, filter, limit):
 def refresh_metrics():
     try:
         global METRICS
+        print('fetching ' + META)
         result = requests.get(META)
         _json = result.json()
         METRICS = _json['data']
+        print('#METRICS=' + str(len(METRICS)))
         # synthetic metrics for histogram and summary
         synth = {}
         for k, metric in METRICS.items():
@@ -1025,7 +1027,6 @@ def values():
             _meta += [m]
     return jsonify({'status': 'success', 'data': _meta})
 
-@app.before_first_request
 def startup():
     import threading, gc
     gc.enable()
@@ -1080,6 +1081,15 @@ if os.environ.get('MINIPROM'):
 dash.layout = serve_layout
 
 if __name__ == '__main__':
+    print('anomalizer: PORT=' + str(PORT))
+    startup()
+
+    # pure flask engine
+    #app.run(port=PORT)
+
+    # waitress
     from waitress import serve
     serve(app, host='0.0.0.0', port=PORT)
+    
+    # dash
     #dash.run_server(debug=False, host='0.0.0.0', port=PORT)

@@ -3,6 +3,10 @@
 The Anomalizer(TM) is a proof-of-concept visualization tool for Prometheus.
 It operates by scraping metrics out of Prometheus, generating images, analyzing them for behavior (increasing, decreasing, noisy) and visualizing them (spark-lines & scattergrams).
 
+## A video is worth 1000x1000 words?
+
+![](images/anomalizer.gif)
+
 ## Quick start
 Use `docker-compose` to launch a Prometheus engine, `anomalizer`, `anomalizer-ui` and a
 `load-test` to generate data.

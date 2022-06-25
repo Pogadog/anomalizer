@@ -231,7 +231,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
             dfp = pd.DataFrame(columns= np.arange(len(labels)).T, data=np.array(values).T)
             std = dfp.std(ddof=0).sum()
             if std < thresh:
-                #print('metric; ' + metric + ' is not interesting, std=' + str(std) + '...')
+                print('metric; ' + metric + ' is not interesting, std=' + str(std) + '...')
                 return None, None, None, None
 
         labels, values, query = get_prometheus(metric, _rate, TYPE, STEP)
@@ -432,13 +432,13 @@ def poll_metrics():
         METRICS_PROCESSED += 1
         try:
             type = METRIC_TYPES.get(metric, '')
-            print('rendering metric: ' + metric)
             id = METRIC_MAP.get(metric, str(uuid.uuid4()))
             if TYPE and type != TYPE:
                 fig = None
             else:
-                fig, labels, query, dfp = line_chart(metric, id, type, _rate=type=='counter', thresh=LIMIT, filter=FILTER)
+                fig, labels, query, dfp = line_chart(metric, id, type, _rate=type=='counter' or type=='summary', thresh=LIMIT, filter=FILTER)
             if fig:
+                print('rendering metric: ' + metric)
                 METRICS_TOTAL_TS += len(labels)
                 img_bytes = to_image(fig)
                 encoding = b64encode(img_bytes).decode()
@@ -480,12 +480,13 @@ def poll_metrics():
                     std = dfp.std(ddof=0).abs().sum()
                     mean = dfp.mean().sum()
                     rstd = std/mean if mean>std else std
-                    if rstd < 0.40:
-                        status = Status.NORMAL
-                    elif rstd < 0.70:
+                    status = Status.NORMAL
+                    ''' TODO: assign status based on real anomalies.
+                    if rstd > 0.4:
                         status = Status.WARNING
-                    else:
+                    elif rstd > 0.7:
                         status = Status.CRITICAL
+                    '''
                     cardinality = 'high' if len(labels) >= 10 else 'low'
 
                     if snr > 0 and rstd < 0.4 and snr < 2: # normal and noisy.

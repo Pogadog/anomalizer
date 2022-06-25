@@ -1,0 +1,12 @@
+scrape_configs:
+  - job_name: 'anomalizer'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:8056']
+
+  - job_name: 'mini-prom'
+    scrape_interval: 10s
+    static_configs:
+      #- targets: ['localhost:8056', 'localhost:9090']
+      #- targets: ['anomalizer:8056', 'mini-prom:9091']
+      - targets: ['localhost:9091'] # self-analyze

@@ -9,4 +9,4 @@ scrape_configs:
     static_configs:
       #- targets: ['localhost:8056', 'localhost:9090']
       #- targets: ['anomalizer:8056', 'mini-prom:9091']
-      - targets: ['localhost:9091'] # self-analyze
+      - targets: ['localhost:9090'] # self-analyze

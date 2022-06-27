@@ -29,8 +29,13 @@ from prometheus_client import Summary, Histogram, Counter, Gauge, generate_lates
 
 from flask import Flask, jsonify, request, make_response
 
+from apiflask import APIFlask, Schema
+from apiflask.fields import String, Boolean
+
+'''
 from dash import Dash, html, dcc
 from dash.dependencies import Input, Output, State
+'''
 import plotly.express as px
 import plotly.graph_objs as go
 import plotly.io
@@ -136,7 +141,8 @@ class Status(enum.Enum):
     WARNING = 'warning'
     CRITICAL = 'critical'
 
-app = Flask(__name__, static_folder=None)
+#app = Flask(__name__, static_folder=None)
+app = APIFlask(__name__)
 
 # roll-your-own flask monitoring to strip id's from metrics.
 FLASK_REQUEST_LATENCY = Histogram('anomalizer_flask_request_latency_seconds', 'Flask Request Latency',
@@ -156,15 +162,23 @@ def after_request(response):
 app.before_request(before_request)
 app.after_request(after_request)
 
+'''
 dash = Dash(
     __name__,
     server=app,
     url_base_pathname='/'
 )
+'''
 
-@app.route("/")
+'''
+@app.route('/')
 def my_dash_app():
     return dash.index()
+'''
+
+@app.route("/")
+def main():
+    return "ok"
 
 def filter_json(json, match, value):
     if not value:
@@ -231,7 +245,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
             dfp = pd.DataFrame(columns= np.arange(len(labels)).T, data=np.array(values).T)
             std = dfp.std(ddof=0).sum()
             if std < thresh:
-                print('metric; ' + metric + ' is not interesting, std=' + str(std) + '...')
+                #print('metric; ' + metric + ' is not interesting, std=' + str(std) + '...')
                 return None, None, None, None
 
         labels, values, query = get_prometheus(metric, _rate, TYPE, STEP)
@@ -256,7 +270,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                         count += 1
                         if count > 20:
                             break
-                        print('generating scattergram for ' + metric + '.' + str(i))
+                        #print('generating scattergram for ' + metric + '.' + str(i))
                         dxi = dx.loc[i]
                         dyi = dy.loc[i]
                         index = pd.DataFrame(dx.T.index)
@@ -293,15 +307,18 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                                 print('problem computing hockey-stick: ' + metric + '.' + str(i) + ': ' + str(x))
 
                         mean = dyi.mean()
+                        _max = dyi.max()
+                        _min = dyi.min()
                         std = dyi.std(ddof=0)
                         rstd = std/mean if mean>std else std
+                        spike = _max/mean if mean>0 else _max
 
-                        stats = {'rstd': rstd, 'mean': mean, 'std': std}
+                        stats = {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': mean, 'std': std, 'spike': spike}
                         FIGURES[scat_id] += [(fig, features, stats)]
 
                     else:
                         FIGURES[scat_id] += [(None, {}, {})]
-                        print('ignoring boring scattergram for ' + metric + ': ' + scat_id + '.' + str(i))
+                        #print('ignoring boring scattergram for ' + metric + ': ' + scat_id + '.' + str(i))
 
 
         # right-align mismatch row lengths to make latest time points right.
@@ -364,6 +381,8 @@ C_EXCEPTIONS_HANDLED = Counter('anomalizer_num_exceptions_handled', 'number of e
 H_PROMETHEUS_CALL = Histogram('anomalizer_prometheus_request_latency', 'request latency for prometheus metrics')
 
 S_TO_IMAGE = Summary('anomalizer_to_image_time', 'time to convert images')
+S_FIGURE = Summary('anomalizer_figures_seconds', 'time to compute figures')
+
 
 @S_TO_IMAGE.time()
 def to_image(fig, id=None):
@@ -430,15 +449,16 @@ def poll_metrics():
     #print('poll_metrics: ' + str(METRICS))
     for metric in METRICS.copy():
         METRICS_PROCESSED += 1
+        id = None
         try:
             type = METRIC_TYPES.get(metric, '')
             id = METRIC_MAP.get(metric, str(uuid.uuid4()))
             if TYPE and type != TYPE:
-                fig = None
+                fig, dfp, query = None, None, ''
             else:
                 fig, labels, query, dfp = line_chart(metric, id, type, _rate=type=='counter' or type=='summary', thresh=LIMIT, filter=FILTER)
             if fig:
-                print('rendering metric: ' + metric)
+                #print('rendering metric: ' + metric)
                 METRICS_TOTAL_TS += len(labels)
                 img_bytes = to_image(fig)
                 encoding = b64encode(img_bytes).decode()
@@ -479,7 +499,11 @@ def poll_metrics():
                 if not dfp is None:
                     std = dfp.std(ddof=0).abs().sum()
                     mean = dfp.mean().sum()
+                    _max = dfp.max().max()
+                    _min = dfp.min().min()
                     rstd = std/mean if mean>std else std
+                    spike = _max/mean if mean>0 else _max
+
                     status = Status.NORMAL
                     ''' TODO: assign status based on real anomalies.
                     if rstd > 0.4:
@@ -492,7 +516,7 @@ def poll_metrics():
                     if snr > 0 and rstd < 0.4 and snr < 2: # normal and noisy.
                         features.update({'noisy': {'snr': snr}})
 
-                    IMAGES[id] = {'type': type, 'plot': 'timeseries', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status.value, 'features': features, 'metric': metric, 'cardinality': cardinality, 'tags': labels, 'stats': {'rstd': rstd, 'mean': mean, 'std': std, 'snr': snr}}
+                    IMAGES[id] = {'type': type, 'plot': 'timeseries', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status.value, 'features': features, 'metric': metric, 'cardinality': cardinality, 'tags': labels, 'stats': {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': mean, 'std': std, 'snr': snr, 'spike': spike}}
 
                     # handle scattergrams.
                     for i, _fig in enumerate(FIGURES.get(id + '.scatter', [])):
@@ -532,6 +556,14 @@ def poll_metrics():
 
     time.sleep(1)
 
+@app.route('/_dash-update-component', methods=['GET', 'POST'])
+def _dash_update_component():
+    # TODO: remove -- old dash UI compat.
+    result = {'status': 'success'}
+    return jsonify(result)
+
+
+'''
 @dash.callback(
     Output('charts', 'children'),
     Input('dropdown-types', 'value'),
@@ -540,6 +572,7 @@ def poll_metrics():
 )
 def menu(type, filter, limit):
     _params(type, filter, limit)
+'''
 
 def _params(type, filter, limit):
     try:
@@ -672,6 +705,7 @@ def get_names():
     return jsonify(list(METRICS.keys()))
 
 @app.route("/figure/<id>")
+@S_FIGURE.time()
 def figure(id):
     try:
         if '.scatter' in id:
@@ -712,22 +746,29 @@ def metrics():
     response.mimetype = "text/plain"
     return response
 
+class FilterSchema(Schema):
+    query = String(metadata={'query': 'The name of the pet.'})
+    invert = Boolean(metadata={'invert': 'Invert the filter'})
+    limit = String(metadata={'limit': 'Set limit to ignore metrics'})
+
 @app.route('/filter', methods=['GET', 'POST'])
+# TODO: enable once anomalizer UI is updated
+#@app.input(FilterSchema)
 def filter_metrics():
     body = request.json
     if body:
         global FILTER, INVERT, LIMIT
         FILTER = body.get('query', '')
-        INVERT = body.get('not', False)
+        INVERT = body.get('invert', False)
         LIMIT = float(body.get('limit', LIMIT))
-    result = {'status': 'success', 'query': FILTER, 'not': INVERT, 'limit': LIMIT}
+    result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT}
     print(result)
     return jsonify(result)
 
 @app.route('/server-metrics')
 def server_metrics():
     sm = {'poll-time': POLL_TIME, 'metric-count': len(METRICS), 'metrics-processed': METRICS_PROCESSED, 'metrics-available': METRICS_AVAILABLE, 'metrics-dropped': METRICS_DROPPED, 'metrics-total-ts': METRICS_TOTAL_TS}
-    print(sm)
+    #print(sm)
     return jsonify(sm)
 
 @app.route('/correlate/html')
@@ -851,6 +892,7 @@ def correlate_html_id(id):
 
 
 S_CORRELATE = Summary('anomalizer_correlation_time_seconds', 'time to compute correlation', ('mode',))
+G_CORRELATE = Gauge('anomalizer_correlation_time_gauge', 'time to compute (gauge)')
 
 S_CORRELATE_ID = S_CORRELATE.labels('id')
 S_CORRELATE_ALL = S_CORRELATE.labels('all')
@@ -861,7 +903,7 @@ def correlate_all():
     return correlate('all')
 
 @app.route('/correlate/<id>')
-@S_CORRELATE_ID.time()
+@G_CORRELATE.time()
 def correlate_id(id):
     return correlate(id)
 
@@ -917,11 +959,15 @@ def correlate(id):
             single = DATAFRAMES.get(id)
             if single is None:
                 raise Exception('no id ' + id + ' found in DATAFRAMES')
+            # trim all data to the first column length.
+            n = len(single[0])
+            data = data[1:n]
             metric = ID_MAP.get(id)
             if not metric:
                 raise Exception('no id ' + id + ' found in ID_MAP')
             # one-to-many correlation
             corr = pd.DataFrame()
+            # expand the input signal into individual time-series.
             for name, col in single.iteritems():
                 print('C-' + metric + '-' + str(name))
                 if col.std(ddof=0) < LIMIT:
@@ -933,10 +979,10 @@ def correlate(id):
                 else:
                     corr = pd.concat([corr, corr1], axis=1)
             corr = corr.T
-        # for each metric, find the strongest N correlates (will include the metric itself at 1)
+        # for each input metric, find the strongest N correlates (will include the metric itself at 1)
         ordered = []
         dedup = set()
-        for i, v in enumerate(corr.values):
+        for _, v in enumerate(corr.values):
             # support abs(v) argsort to find +ve and -ve correlates.
             isort = np.argsort(neg*v)
             if negative:
@@ -952,6 +998,10 @@ def correlate(id):
                 timeseries = data[metrics].T.values
                 images = []
                 for i, ts in enumerate(timeseries):
+                    if i > N_CORR:
+                        # limit to N_CORR.
+                        break
+                    # Note: these figurs are indexed by a differnt kind of id: <metric-name>.<id>.<tag#>
                     fig = px.line(ts, title=metrics[i].split('.')[0], color_discrete_sequence=px.colors.qualitative.Bold)
                     fig.update_layout(xaxis={'title': ''}, legend_title="tag") #, legend_x=0, legend_y=-0.1+-0.1*len(labels))
                     fig.update_layout(template=None, height=400, width=400, autosize=False, title={'x': 0.05, 'xanchor': 'left'})
@@ -1079,18 +1129,18 @@ if os.environ.get('MINIPROM'):
     import subprocess
     subprocess.Popen(['python', 'mini-prom.py'], shell=True)
 
-dash.layout = serve_layout
+#dash.layout = serve_layout
 
 if __name__ == '__main__':
     print('anomalizer: PORT=' + str(PORT))
     startup()
 
     # pure flask engine
-    #app.run(port=PORT)
+    app.run(port=PORT)
 
     # waitress
-    from waitress import serve
-    serve(app, host='0.0.0.0', port=PORT)
+    #from waitress import serve
+    #serve(app, host='0.0.0.0', port=PORT)
     
     # dash
     #dash.run_server(debug=False, host='0.0.0.0', port=PORT)

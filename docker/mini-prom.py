@@ -7,6 +7,8 @@
 #   /api/v1/query_range?query=<metric>>&start=<start>>&end=<end>&step=<step> -- time-series for metrics.
 
 from flask import Flask, jsonify, request, make_response
+from apiflask import APIFlask
+
 import yaml
 from prometheus_client import Summary, Gauge, generate_latest
 from prometheus_client.parser import text_string_to_metric_families
@@ -16,13 +18,15 @@ import logging
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.WARN)
 
-server = Flask(__name__)
+#server = Flask(__name__)
+server = APIFlask(__name__)
 
 @server.route('/health')
+@server.doc(summary='healthcheck', description='health-check endpoint')
 def health():
     return jsonify({'status': 'healthy'})
 
-PORT = int(os.environ.get('MINIPROM_PORT', '9091'))
+PORT = int(os.environ.get('MINIPROM_PORT', '9090'))
 
 CONFIG = None
 
@@ -33,32 +37,35 @@ METRICS_FAMILY = {}
 CURRENT = 0
 
 @server.route('/config')
+@server.doc(summary='configuraton information', description='dumps the prometheus.yaml file')
 def config():
     return jsonify(CONFIG)
 
 @server.route('/metrics')
+@server.doc(summary='prometheus metrics', description='returns prometheus metrics from scraped endpoints')
 def metrics():
     latest = generate_latest()
     response = make_response(latest, 200)
     response.mimetype = "text/plain"
     return response
 
+'''
+blob = {
+    'status': "success",
+    'data': {
+        'anomalizer_correlation_time_seconds': [
+            {
+                'type': "summary",
+                'help': "time to compute correlation",
+                'unit': ""
+            }
+        ]
+    }
+}
+'''
+
 @server.route('/api/v1/metadata')
 def metadata():
-    '''
-    blob = {
-        'status': "success",
-        'data': {
-            'anomalizer_correlation_time_seconds': [
-                {
-                    'type': "summary",
-                    'help': "time to compute correlation",
-                    'unit': ""
-                }
-            ]
-        }
-    }
-    '''
     blob = {'status': 'success', 'data': {}}
     data = blob['data']
     for metric, family in METRICS_FAMILY.items():

@@ -2,6 +2,7 @@ import os, time, threading, traceback, gc, psutil, requests, uuid, json, re, ast
 import pandas as pd
 import numpy as np
 from base64 import b64encode
+import functools
 
 from flask import jsonify, request, make_response
 from apiflask import APIFlask, Schema
@@ -41,11 +42,12 @@ def correlate_all():
     return correlate('all')
 
 @app.route('/correlate/<id>')
-@G_CORRELATE.time()
+@S_CORRELATE_ID.time()
 def correlate_id(id):
     return correlate(id)
 
 DATAFRAMES = {}
+ID_MAP = {}
 ANOMALIZER_ENGINE_HEALTHY = False
 
 @app.route('/health')
@@ -58,24 +60,32 @@ def health():
 
 def poll_dataframes():
     global ANOMALIZER_ENGINE_HEALTHY
-    try:
-        while True:
-            result = requests.get(ANOMALIZER_ENGINE + '/dataframes')
-            assert result.status_code == 200
-            ANOMALIZER_ENGINE_HEALTHY = True
-            dataframes = result.json()['dataframes']
-            ID_MAP = result.json()['id_map']
+    while True:
+        with shared.S_POLL_METRICS.time():
+            try:
+                result = requests.get(ANOMALIZER_ENGINE + '/dataframes')
+                assert result.status_code == 200
+                ANOMALIZER_ENGINE_HEALTHY = True
+                dataframes = result.json()['dataframes']
+                id_map = result.json()['id_map']
 
-            for dataframe in dataframes:
-                _id, df = dataframe
-                dataframe = pd.read_json(df, orient='index').T
-                DATAFRAMES[_id] = dataframe
-    except:
-        traceback.print_exc()
-        ANOMALIZER_ENGINE_HEALTHY = False
-    time.sleep(1)
+                for dataframe in dataframes:
+                    _id, df = dataframe
+                    dataframe = pd.read_json(df, orient='index').T
+                    DATAFRAMES[_id] = dataframe
+                    ID_MAP[_id] = id_map[_id]
+            except:
+                traceback.print_exc()
+                ANOMALIZER_ENGINE_HEALTHY = False
+        time.sleep(1)
+
+def clear_cache():
+    while True:
+        correlate.cache_clear()
+        time.sleep(60*2)
 
 
+@functools.lru_cache
 def correlate(id):
     #if id=='all':
     #    print('correlate/all is disabled for reasons of scale')
@@ -94,6 +104,7 @@ def correlate(id):
         # find all correlations. pearson correlation pairwise of all dataframes that are currently active.
         print('correlate #DATAFRAMES=' + str(len(DATAFRAMES)))
         # collect all data-frames expanded as columns and tagged as individual metrics.
+        print('gathering data')
         for _id, df in DATAFRAMES.copy().items():
             dfc = df.copy()
             # don't bother to correlate things that aren't moving around.
@@ -115,6 +126,7 @@ def correlate(id):
             else:
                 data = pd.concat([data, dfc], axis=1)
         data = data.fillna(0)
+        print('starting correlation')
         if id=='all':
             # correleate everything against everything
             #print('correlate/all')
@@ -192,6 +204,7 @@ def correlate(id):
         # most time is spent generating and serializing the b64 images.
         elapsed = time.time()-start
         ordered = sorted(ordered, key=lambda x: -x['fit'])
+        print('correlation finished')
         return jsonify({'status': 'success', 'elapsed': elapsed, 'correlates': ordered, 'metrics': len(DATAFRAMES), 'results': len(ordered)})
 
     except Exception as x:
@@ -211,6 +224,9 @@ def metrics():
 
 def startup():
     thread = threading.Thread(target=poll_dataframes)
+    thread.start()
+
+    thread = threading.Thread(target=clear_cache)
     thread.start()
 
 if __name__ == '__main__':

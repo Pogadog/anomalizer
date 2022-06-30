@@ -1,13 +1,13 @@
 # polls prometheus and maintains a live-cache of metrics in a form that can be queried with high bandwidth and low
 # latency.
-import os, time, threading, traceback, gc, psutil, requests, uuid, json, re, ast, enum
+import os, time, threading, traceback, gc, psutil, requests, uuid, json, re, ast, enum, math
 import pandas as pd
 import numpy as np
 
 from collections import defaultdict
 from flask import jsonify, request, make_response
-from apiflask import APIFlask, Schema
-from prometheus_client import Summary, Histogram, Counter, Gauge, generate_latest
+from apiflask import APIFlask
+from prometheus_client import Histogram, Gauge, generate_latest
 
 from health import Health
 import shared
@@ -232,12 +232,16 @@ def get_prometheus(metric, _rate, type, step):
         PROMETHEUS_HEALTHY = True
 
         _json = result.json()['data']['result']
-        for j in _json:
+        for i, j in enumerate(_json):
             if type=='histogram':
-                label = j['metric']['le']
-                labels.append(float(label))
+                label = j['metric'].get('le')
+                if not label:
+                    label = str(j['metric'])
+                labels.append(label)
             elif type=='summary':
-                label = j['metric']['quantile']
+                label = j['metric'].get('quantile')
+                if not label:
+                    label = str(j['metric'])
                 labels.append(label)
             else:
                 if '__name__' in j['metric']:
@@ -251,6 +255,35 @@ def get_prometheus(metric, _rate, type, step):
     except:
         PROMETEHUS_HEALTHY = False
         raise
+
+def hockey_stick(dxi, dyi, N=3):
+    dxy = pd.concat([dxi, dyi], axis=1)
+    dxy.columns=['x', 'y']
+    dxy = dxy.sort_values(by='x')
+
+    x = dxy['x']
+    y = dxy['y']
+
+    xr = x.max()-x.min()
+    yr = y.max()-y.min()
+
+    NUM = N-1
+    DEN = N
+
+    # fit linear models to the first and second halfs of the x/y data, sorted by x, and then look for the change
+    # in gradient to indicate a hockeystick.
+    x1 = x.iloc[0:len(x)*NUM//DEN]
+    y1 = y.iloc[0:len(y)*NUM//DEN]
+    fit1 = np.polyfit(x1, y1, 1)
+    p1 = np.poly1d(fit1)
+
+    x2 = x[len(x)*NUM//DEN:]
+    y2 = y[len(y)*NUM//DEN:]
+    fit2 = np.polyfit(x2, y2, 1)
+    p2 = np.poly1d(fit2)
+
+    # return the ratio of the second and first gradients. > 2 is a hockey-stick feature.
+    return p1[1]*xr/yr, p2[1]*xr/yr
 
 def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
     global INTERNAL_FAILURE
@@ -319,7 +352,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                         # for a hockey-stick: require x to at least double over the domain.
                         if (dxi.max() > 2*dxi.min()):
                             try:
-                                p1, p2 = hockey_stick(None, dxi, dyi)
+                                p1, p2 = hockey_stick(dxi, dyi)
                                 ratio = p2-p1
                                 if math.isnan(ratio):
                                     ratio = 0
@@ -333,6 +366,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                                     features.update({'hockeystick':  {'decreasing': ratio}})
 
                             except Exception as x:
+                                traceback.print_exc()
                                 print('problem computing hockey-stick: ' + metric + '.' + str(i) + ': ' + str(x))
 
                         mean = dyi.mean()
@@ -377,8 +411,8 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
 
         return labels, values, query, dfp
     except Exception as x:
-        #traceback.print_exc()
-        print('error generating line_chart: ' + metric + '.' + id + ': ' + str(x))
+        traceback.print_exc()
+        print('error collecting DATAFRAME: ' + metric + '.' + id + ': ' + str(x))
         C_EXCEPTIONS_HANDLED.labels(x.__class__.__name__).inc()
         INTERNAL_FAILURE = True
         time.sleep(1)
@@ -389,6 +423,7 @@ METRICS_AVAILABLE = 0
 METRICS_DROPPED = 0
 METRICS_TOTAL_TS = 0
 
+@shared.S_POLL_METRICS.time()
 def poll_metrics():
     global METRICS_DROPPED, METRICS_PROCESSED, METRICS_AVAILABLE, METRICS_TOTAL_TS
     METRICS_AVAILABLE = METRICS_PROCESSED-METRICS_DROPPED

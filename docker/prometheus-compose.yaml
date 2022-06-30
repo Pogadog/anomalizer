@@ -1,0 +1,12 @@
+version: "2"
+services:
+
+  anomalizer-prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus-data:/prometheus
+    ports:
+      - "9090:9090" # expose this prometheus on 9091 host port
+
+

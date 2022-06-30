@@ -43,9 +43,10 @@ import pandas as pd
 import requests, json, re, random, ast, copy, enum, socket
 import math, time, os
 import numpy as np
-from base64 import b64encode
 import uuid
 import cProfile, pstats, io
+from base64 import b64encode
+
 import psutil
 
 import warnings
@@ -60,16 +61,16 @@ TYPES = ['', 'counter', 'gauge', 'histogram', 'summary']
 TYPE = TYPES[0]
 LIMITS = [0.1, 0.01, 0.001, 0.0001, 0.00001, 0.0000001, 0.00000001, 0.000000001, 0]
 LIMIT = LIMITS[-2]
-LOCALHOST = os.environ.get('PROMETHEUS', 'localhost:9090')
 PORT = int(os.environ.get('PORT', 8056))
 KEEP_DATAFRAMES = os.environ.get('KEEP_DATAFRAMES', 'true')=='true'   
 FILTER = ''
-INVRET = False
+INVERT = False
 OLD_TYPE = None
 
 INCREASE_THRESH = 0.5
 DECREASE_THRESH = -0.25
 
+LOCALHOST = os.environ.get('PROMETHEUS', 'localhost:9090')
 PROMETHEUS = 'http://' + LOCALHOST
 
 print('prometheus is on: ' + PROMETHEUS)
@@ -588,7 +589,7 @@ def _params(type, filter, limit):
             METRIC_MAP.clear()
             DATAFRAMES.clear()
         LIMIT = limit
-        print('FILTER=' + FILTER + ', LIMIT=' + str(LIMIT))
+        #print('FILTER=' + FILTER + ', LIMIT=' + str(LIMIT))
     except Exception as x:
         print('unable to contact prometheus at: ' + META)
         traceback.print_exc()
@@ -740,6 +741,7 @@ def metrics():
         print('unable to get /metrics from ' + PROM)
 
     # add in our metrics.
+    lines = ''
     latest = generate_latest()
     lines += latest.decode()
     response = make_response(lines, 200)

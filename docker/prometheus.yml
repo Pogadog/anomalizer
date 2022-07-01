@@ -47,6 +47,29 @@ scrape_configs:
     static_configs:
       - targets: ['host.docker.internal:8062']
 
+  - job_name: 'anomalizer-cloud'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['anomalizer-demo.uc.r.appspot.com']
+
+  - job_name: 'anomalizer-cloud-engine'
+    scrape_interval: 10s
+    metrics_path: /proxy/engine
+    static_configs:
+      - targets: ['anomalizer-demo.uc.r.appspot.com']
+
+  - job_name: 'anomalizer-cloud-images'
+    scrape_interval: 10s
+    metrics_path: /proxy/images
+    static_configs:
+      - targets: ['anomalizer-demo.uc.r.appspot.com']
+
+  - job_name: 'anomalizer-cloud-correlator'
+    scrape_interval: 10s
+    metrics_path: /proxy/correlator
+    static_configs:
+      - targets: ['anomalizer-demo.uc.r.appspot.com']
+
   - job_name: 'docker'
     scrape_interval: 10s
     static_configs:

@@ -20,7 +20,7 @@ logging.getLogger("werkzeug").disabled = True
 
 app = APIFlask(__name__, title='anomalizer-engine')
 
-PORT = int(os.environ.get('PORT', 8060))
+PORT = int(os.environ.get('ANOMALIZER_ENGINE_PORT', 8060))
 
 DURATION = 60*60*3
 STEP = 60
@@ -55,6 +55,7 @@ METRICS = {}
 PROMETHEUS_HEALTHY = False
 INTERNAL_FAILURE = False
 
+START_TIME = time.time()
 
 class Status(str, enum.Enum):
     NORMAL = 'normal'
@@ -72,6 +73,11 @@ def health():
         'prometheus': Health.UP if PROMETHEUS_HEALTHY else Health.DOWN,
         'anomalizer-engine': Health.UP if not INTERNAL_FAILURE else Health.DOWN
     })
+
+@app.route('/features')
+def features():
+    return jsonify(FEATURES)
+
 
 @app.route('/dataframes')
 def dataframes():
@@ -135,7 +141,7 @@ def metrics():
 
 @app.route('/server-metrics')
 def server_metrics():
-    sm = {'poll-time': POLL_TIME, 'metric-count': len(METRICS), 'metrics-processed': METRICS_PROCESSED, 'metrics-available': METRICS_AVAILABLE, 'metrics-dropped': METRICS_DROPPED, 'metrics-total-ts': METRICS_TOTAL_TS}
+    sm = {'uptime': int(time.time()-START_TIME), 'poll-time': POLL_TIME, 'metric-count': len(METRICS), 'metrics-processed': METRICS_PROCESSED, 'metrics-available': METRICS_AVAILABLE, 'metrics-dropped': METRICS_DROPPED, 'metrics-total-ts': METRICS_TOTAL_TS}
     #print(sm)
     return jsonify(sm)
 
@@ -162,7 +168,7 @@ def cleanup(id, metric):
         traceback.print_exc()
 
 def poller():
-    print('poller starting...')
+    print('engine: poller starting...')
     while True:
         refresh_metrics()
         start = time.time()
@@ -175,6 +181,7 @@ def poller():
         finally:
             global POLL_TIME
             POLL_TIME = time.time() - start
+        time.sleep(1)
 
 def _metadata():
     try:
@@ -186,18 +193,18 @@ def _metadata():
         #print('METRIC_TYPES=' + str(METRIC_TYPES))
         return {'status': 'success', 'data': meta}
     except Exception as x:
-        print('unable to contact prometheus at: ' + META)
+        print('engine: unable to contact prometheus at: ' + META)
         return {'status': 'failure'}
 
 def refresh_metrics():
     try:
         global METRICS
         _metadata()
-        print('fetching ' + META)
+        print('engine: fetching ' + META)
         result = requests.get(META)
         _json = result.json()
         METRICS = _json['data']
-        print('#METRICS=' + str(len(METRICS)) + ', #DATAFRAMES=' + str(len(DATAFRAMES)))
+        print('engine: #METRICS=' + str(len(METRICS)) + ', #DATAFRAMES=' + str(len(DATAFRAMES)))
         # synthetic metrics for histogram and summary
         synth = {}
         for k, metric in METRICS.items():
@@ -208,12 +215,13 @@ def refresh_metrics():
         METRICS.update(synth)
         #print('METRICS=' + str(METRICS))
     except Exception as x:
-        print('error refreshing metrics: ' + str(x))
+        print('engine: error refreshing metrics: ' + str(x))
         time.sleep(5)
 
 
 def get_prometheus(metric, _rate, type, step):
     global PROMETHEUS_HEALTHY
+    #print('engine: get_prometheus: ' + metric)
     try:
         labels = []
         values = []
@@ -253,7 +261,7 @@ def get_prometheus(metric, _rate, type, step):
         query = PROM.replace('/api/v1/query_range?query=', '/graph?g0.expr=')
         return labels, values, query
     except:
-        PROMETEHUS_HEALTHY = False
+        PROMETHEUS_HEALTHY = False
         raise
 
 def hockey_stick(dxi, dyi, N=3):
@@ -282,8 +290,12 @@ def hockey_stick(dxi, dyi, N=3):
     fit2 = np.polyfit(x2, y2, 1)
     p2 = np.poly1d(fit2)
 
-    # return the ratio of the second and first gradients. > 2 is a hockey-stick feature.
+    # return the ratio of the second and first grafndients. > 2 is a hockey-stick feature.
     return p1[1]*xr/yr, p2[1]*xr/yr
+
+def no_nan(dict):
+    dict = {k: 0 if math.isnan(v) else v for k, v in dict.items()}
+    return dict
 
 def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
     global INTERNAL_FAILURE
@@ -369,14 +381,17 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                                 traceback.print_exc()
                                 print('problem computing hockey-stick: ' + metric + '.' + str(i) + ': ' + str(x))
 
-                        mean = dyi.mean()
+                        _mean = dyi.mean()
                         _max = dyi.max()
                         _min = dyi.min()
                         std = dyi.std(ddof=0)
-                        rstd = std/mean if mean>std else std
-                        spike = _max/mean if mean>0 else _max
+                        rstd = std/_mean if _mean>std else std
+                        spike = _max/_mean if _min>0 else 0
+                        if spike > 10:
+                            features.update({'spike': spike})
 
-                        stats = {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': mean, 'std': std, 'spike': spike}
+                        stats = {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': _mean, 'std': std, 'spike': spike}
+                        stats = no_nan(stats)
                         STATS[id] = stats
 
                     else:
@@ -423,7 +438,7 @@ METRICS_AVAILABLE = 0
 METRICS_DROPPED = 0
 METRICS_TOTAL_TS = 0
 
-@shared.S_POLL_METRICS.time()
+@shared.S_POLL_METRICS.labels('engine').time()
 def poll_metrics():
     global METRICS_DROPPED, METRICS_PROCESSED, METRICS_AVAILABLE, METRICS_TOTAL_TS
     METRICS_AVAILABLE = METRICS_PROCESSED-METRICS_DROPPED
@@ -449,7 +464,7 @@ def poll_metrics():
                     # forward/backward map between metrics and their ids.
                     ID_MAP[id] = metric
                     METRIC_MAP[metric] = id
-                    if dfp is None or dfp.shape[0] < 5: # need 5 points to compute things.
+                    if dfp is None or dfp.shape[0] < 3: # need min 3 points to compute things.
                         continue
                     # features
                     N = len(dfp)
@@ -486,6 +501,8 @@ def poll_metrics():
                         _min = dfp.min().min()
                         rstd = std/mean if mean>std else std
                         spike = _max/mean if mean>0 else _max
+                        if spike > 10:
+                            features.update({'spike': spike})
 
                         status = Status.NORMAL
                         ''' TODO: assign status based on real anomalies.
@@ -502,6 +519,8 @@ def poll_metrics():
                         DATAFRAMES[id] = dfp
 
                         stats = {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': mean, 'std': std, 'spike': spike, 'snr': snr}
+                        stats = no_nan(stats)
+
                         STATS[id] = stats
                         STATUS[id] = status.value
 
@@ -552,8 +571,11 @@ def resource_monitoring():
         time.sleep(30)
 
 if __name__ == '__main__':
+    try:
+        startup()
 
-    startup()
-
-    print('anomalizer-engine: PORT=' + str(PORT))
-    app.run(port=PORT)
+        print('anomalizer-engine: PORT=' + str(PORT))
+        app.run(port=PORT, use_reloader=False   )
+    except Exception as x:
+        print('anomalizer-engine error: ' + str(x))
+        exit(1)

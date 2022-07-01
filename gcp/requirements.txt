@@ -1,3 +1,4 @@
+Flask==2.1.0
 Brotli==1.0.9
 certifi==2021.10.8
 charset-normalizer==2.0.12
@@ -6,7 +7,7 @@ dash==2.2.0
 dash-core-components==2.0.0
 dash-html-components==2.0.0
 dash-table==5.0.0
-Flask==2.0.3
+#Flask==2.0.3
 Flask-Compress==1.11
 idna==3.3
 itsdangerous==2.1.1

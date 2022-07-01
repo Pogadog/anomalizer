@@ -5,6 +5,7 @@
 #   /metrics -- current metrics gathered from other prometheus (proxy)
 #   /api/v1/metadata -- metadata about metrics
 #   /api/v1/query_range?query=<metric>>&start=<start>>&end=<end>&step=<step> -- time-series for metrics.
+import traceback
 
 from flask import Flask, jsonify, request, make_response
 from apiflask import APIFlask
@@ -99,9 +100,12 @@ def query_range():
             result += [{'metric': _metric, 'values': values}]
     return jsonify(blob)
 
-if __name__=='__main__':
+PATH = os.environ.get('MICROSERVICES', '')
+print('PATH=' + PATH)
+
+def miniprom():
     # load prometheus.yaml and start scraping it
-    with open('mini-prom.yaml') as file:
+    with open(PATH + 'mini-prom.yaml') as file:
         CONFIG = yaml.safe_load(file)
 
     print(CONFIG)
@@ -116,7 +120,7 @@ if __name__=='__main__':
                 for mtarget in targets:
                     for target in mtarget['targets']:
                         try:
-                            print('scraping: http://' + target + '/metrics')
+                            print('mini-prom: scraping: http://' + target + '/metrics')
                             text = requests.get('http://' + target + '/metrics').text
                             _time = time.time()
                             for family in text_string_to_metric_families(text):
@@ -140,13 +144,14 @@ if __name__=='__main__':
                             #    print(name + ': ' + str(METRICS_BY_NAME[CURRENT]['metrics'][name]))
                             time.sleep(10)
                         except Exception as x:
-                            print('scrape exception: ' + str(x))
+                            # traceback.print_exc()
+                            print('mini-prom: scrape exception: ' + str(x))
 
 
     import threading
     poller = threading.Thread(target=poller)
     poller.start()
-    time.sleep(5)
     server.run(host='0.0.0.0', port=PORT)
 
-
+if __name__=='__main__':
+    miniprom()

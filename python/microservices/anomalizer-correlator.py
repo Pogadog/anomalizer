@@ -21,7 +21,7 @@ LIMIT = shared.LIMITS[-2]
 
 app = APIFlask(__name__, title='anomalizer-correlator')
 
-PORT = int(os.environ.get('PORT', 8062))
+PORT = int(os.environ.get('ANOMALIZER_CORRELATOR_PORT', 8062))
 N_CORR = 8
 
 S_CORRELATE = Summary('anomalizer_correlation_time_seconds', 'time to compute correlation', ('mode',))
@@ -50,6 +50,10 @@ DATAFRAMES = {}
 ID_MAP = {}
 ANOMALIZER_ENGINE_HEALTHY = False
 
+@app.route('/ids')
+def ids():
+    return jsonify(list(DATAFRAMES.keys()))
+
 @app.route('/health')
 def health():
     healthy = ANOMALIZER_ENGINE_HEALTHY
@@ -61,7 +65,7 @@ def health():
 def poll_dataframes():
     global ANOMALIZER_ENGINE_HEALTHY
     while True:
-        with shared.S_POLL_METRICS.time():
+        with shared.S_POLL_METRICS.labels('correlator').time():
             try:
                 result = requests.get(ANOMALIZER_ENGINE + '/dataframes')
                 assert result.status_code == 200
@@ -102,9 +106,9 @@ def correlate(id):
     try:
 
         # find all correlations. pearson correlation pairwise of all dataframes that are currently active.
-        print('correlate #DATAFRAMES=' + str(len(DATAFRAMES)))
+        print('correlator: #DATAFRAMES=' + str(len(DATAFRAMES)))
         # collect all data-frames expanded as columns and tagged as individual metrics.
-        print('gathering data')
+        print('correlator: data')
         for _id, df in DATAFRAMES.copy().items():
             dfc = df.copy()
             # don't bother to correlate things that aren't moving around.
@@ -126,7 +130,7 @@ def correlate(id):
             else:
                 data = pd.concat([data, dfc], axis=1)
         data = data.fillna(0)
-        print('starting correlation')
+        print('correlator: starting correlation')
         if id=='all':
             # correleate everything against everything
             #print('correlate/all')
@@ -204,7 +208,7 @@ def correlate(id):
         # most time is spent generating and serializing the b64 images.
         elapsed = time.time()-start
         ordered = sorted(ordered, key=lambda x: -x['fit'])
-        print('correlation finished')
+        print('correlator: correlation finished')
         return jsonify({'status': 'success', 'elapsed': elapsed, 'correlates': ordered, 'metrics': len(DATAFRAMES), 'results': len(ordered)})
 
     except Exception as x:
@@ -231,7 +235,11 @@ def startup():
 
 if __name__ == '__main__':
 
-    startup()
+    try:
+        startup()
 
-    print('anomalizer-images: PORT=' + str(PORT))
-    app.run(port=PORT)
+        print('anomalizer-correlator: PORT=' + str(PORT))
+        app.run(port=PORT, use_reloader=False)
+    except Exception as x:
+        print('anomalizer-correlator: ' + str(x))
+        exit(1)

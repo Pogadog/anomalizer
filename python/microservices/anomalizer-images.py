@@ -33,7 +33,7 @@ FIGURES = {}
 
 app = APIFlask(__name__, title='anomalizer-images')
 
-PORT = int(os.environ.get('PORT', 8061))
+PORT = int(os.environ.get('ANOMALIZER_IMAGES_PORT', 8061))
 
 @app.route('/health')
 def health():
@@ -59,6 +59,20 @@ def figure(id):
     except Exception as x:
         return jsonify({'status': 'failed', 'exception': str(x)})
 
+@app.route('/features')
+def features_fast():
+    increasing = []
+    decreasing = []
+    for _id, image in IMAGES.copy().items():
+        features = image.get('features')
+        if features.get('increasing'):
+            increasing += [image]
+        if features.get('decreasing'):
+            decreasing += [image]
+    increasing = sorted(increasing, key=lambda x: -x['features']['increasing']['increase'])
+    decreasing = sorted(decreasing, key=lambda x: x['features']['decreasing']['decrease'])
+    return jsonify({'features': {'increasing': increasing, 'decreasing': decreasing}})
+
 @app.route('/images')
 def images():
     return jsonify(IMAGES)
@@ -69,6 +83,8 @@ def ids():
 
 @app.route('/images/html')
 def images_html():
+    if not IMAGES:
+        return 'nothing to see here yet, still gathering data?'
     '''
     page = ''
     page += '<div">'
@@ -119,20 +135,20 @@ def to_image(fig, id=None):
 def poll_images():
     global ANOMALIZER_ENGINE_HEALTHY
     while True:
-        print('poll_images')
-        with shared.S_POLL_METRICS.time():
-            try:
-                # 1. ask the anomalizer-engine for a list of metric ids.
-                # 2. grab the dataframe for each image-id
-                # 3. convert to an image and cache.
-                # 4. TODO: bulk queries.
-                ids = requests.get(ANOMALIZER_ENGINE + '/ids')
-                assert ids.status_code == 200
-                ANOMALIZER_ENGINE_HEALTHY = True
-                ids = ids.json()
+        print('images: poll_images')
+        with shared.S_POLL_METRICS.labels('images').time():
+            # 1. ask the anomalizer-engine for a list of metric ids.
+            # 2. grab the dataframe for each image-id
+            # 3. convert to an image and cache.
+            # 4. TODO: bulk queries.
+            ids = requests.get(ANOMALIZER_ENGINE + '/ids')
+            assert ids.status_code == 200
+            ANOMALIZER_ENGINE_HEALTHY = True
+            ids = ids.json()
 
-                #print('ids=' + str(ids))
-                for id in ids:
+            #print('ids=' + str(ids))
+            for id in ids:
+                try:
                     result = requests.get(ANOMALIZER_ENGINE + '/dataframes/' + id)
                     assert result.status_code == 200
                     result = result.json()
@@ -168,9 +184,9 @@ def poll_images():
 
                     IMAGES[id] = {'type': type, 'plot': 'timeseries', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric, 'cardinality': cardinality, 'tags': labels, 'stats': stats}
 
-            except:
-                traceback.print_exc()
-                ANOMALIZER_ENGINE_HEALTHY = False
+                except:
+                    #traceback.print_exc()
+                    ANOMALIZER_ENGINE_HEALTHY = False
         time.sleep(1)
 
 def startup():
@@ -179,7 +195,11 @@ def startup():
 
 if __name__ == '__main__':
 
-    startup()
+    try:
+        startup()
 
-    print('anomalizer-images: PORT=' + str(PORT))
-    app.run(port=PORT)
+        print('anomalizer-images: PORT=' + str(PORT))
+        app.run(port=PORT, use_reloader=False)
+    except Exception as x:
+        print('anomalizer-images error: ' + str(x))
+        exit(1)

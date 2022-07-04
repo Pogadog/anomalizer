@@ -4,7 +4,7 @@
 
 import os
 
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, jsonify, request, make_response, send_from_directory
 
 from apiflask import APIFlask, Schema
 from apiflask.fields import String, Boolean
@@ -56,7 +56,7 @@ def _proxy(*args, **kwargs):
             ANOMALIZER_CORRELATOR_HEALTHY = Health.DOWN
 
 
-app = APIFlask(__name__, title='anomalizer-api')
+app = APIFlask(__name__, title='anomalizer-api', static_folder='web-build')
 
 PORT = int(os.environ.get('ANOMALIZER_API_PORT', 8056))
 
@@ -130,6 +130,7 @@ def metrics():
     lines += r3.data.decode() if r3 else '# HELP anomalizer-correlator no metrics\n'
     latest = generate_latest()
     lines += latest.decode()
+
     response = make_response(lines, 200)
     response.mimetype = "text/plain"
     return response
@@ -145,6 +146,15 @@ def apply_caching(response):
 
     #response.headers["X-Frame-Options"] = "SAMEORIGIN"
     return response
+
+# Serve React App
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    if path != "" and os.path.exists(app.static_folder + '/' + path):
+        return send_from_directory(app.static_folder, path)
+    else:
+        return send_from_directory(app.static_folder, 'index.html')
 
 
 if __name__ == '__main__':

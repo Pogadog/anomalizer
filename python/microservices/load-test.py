@@ -109,4 +109,7 @@ threading.Thread(target=up_down_load).start()
 set_load(1)
 
 if __name__=='__main__':
-    app.run(host='0.0.0.0', port='7070')
+    import os
+    PORT = int(os.environ.get('LOAD_TEST_PORT', '7070'))
+    print('load-test: PORT=' + str(PORT))
+    app.run(host='0.0.0.0', port=PORT)

@@ -31,6 +31,37 @@ environment:
 * http://localhost:8056/images/html
 * http://localhost:8056/images
 
+## Building for the AppEngine Cloud
+
+You will need to checkout the anomalizer-ui code as a peer to this folder.
+Then you will need to do this to build the web-build distribution that is linked
+to a sub-folder under microservices, and also under gcp.  This is needed to allow 
+the anomalizer-ui to be served from the main.py (and anomalizer-ui.py file) in this project.
+
+```
+expo build:web
+```
+At this point you should be able to run
+
+
+```
+python anomalizer-service.py
+python anomalizer-ui.py
+```
+and hit the localhost:3001 endpoint to see the live application.  You will need to edit
+the config.js file in the anomalizer-ui as follows to make the UI hit a localhost endpoint, 
+otherwise it will point to the cloud, and you won't see any changes you make to the 
+service here update the behavior (I've done this plenty of times).
+
+```
+{
+    "port": 3001,
+    "_endpoint": "https://anomalizer-demo.uc.r.appspot.com",
+    "endpoint": "http://localhost:8056",
+    "useArtificialLatency": true
+}
+```
+
 ## Debugging on a desktop machine
 
 Simply load the `anomalizer.py` file into a Python IDE environment, after installing the

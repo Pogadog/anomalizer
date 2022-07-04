@@ -6,9 +6,12 @@
 #   /api/v1/metadata -- metadata about metrics
 #   /api/v1/query_range?query=<metric>>&start=<start>>&end=<end>&step=<step> -- time-series for metrics.
 import traceback
+import pickle
 
 from flask import Flask, jsonify, request, make_response
 from apiflask import APIFlask
+from urllib.parse import unquote
+import pandas as pd
 
 import yaml
 from prometheus_client import Summary, Gauge, generate_latest
@@ -50,6 +53,11 @@ def metrics():
     response.mimetype = "text/plain"
     return response
 
+@server.route('/metrics-by-name')
+def metrics_by_name():
+    return jsonify(METRICS_BY_NAME)
+
+
 '''
 blob = {
     'status': "success",
@@ -85,15 +93,28 @@ def query_range():
             'result': []
         }
     }
-    query = request.query_string.decode()
+    query = unquote(request.query_string)
     split = re.split(r'[()]', query)
-    metric = split[1].split('[')[0]
+    if split[0].endswith('rate'):
+        metric, rate = split[1].split('[')
+        rate = rate.split(']')[0]
+    else:
+        metric = split[1]
+        rate = None
+
     current = METRICS_BY_NAME[CURRENT]
     m = current['metrics'].get(metric)
     result = blob['data']['result']
     if m:
         for tag in m:
             values = [[_m[0], str(_m[1])] for _m in m[tag]]
+            if values and rate:
+                dvalues = pd.DataFrame(values, dtype=float)
+                diff = dvalues.diff()
+                diff = diff.fillna(0)
+                dvalues.iloc[:,1:] = diff.iloc[:,1:]
+                values = dvalues.values.tolist()
+
             tags = dict([x.split('=') for x in ast.literal_eval(tag)])
             _metric = {'__name__': metric}
             _metric.update(tags)
@@ -101,7 +122,25 @@ def query_range():
     return jsonify(blob)
 
 PATH = os.environ.get('MICROSERVICES', '')
-print('PATH=' + PATH)
+print('MICROSERVICES=' + PATH)
+
+from google.cloud import storage
+def write_to_cloud (upload):
+    print('write_to_cloud: ' + upload)
+    client = storage.Client()
+    bucket = client.get_bucket( 'anomalizer-demo.appspot.com' )
+    blob = bucket.blob('mini-prom/' + upload)
+    blob.upload_from_filename(upload)
+
+def read_from_cloud (name):
+    print('read_from_cloud: ' + name)
+    client = storage.Client()
+    bucket = client.get_bucket( 'anomalizer-demo.appspot.com' )
+    blob = bucket.blob('mini-prom/' + name)
+    if blob.exists():
+        file = open(name, 'wb')
+        with file:
+            blob.download_to_file(file)
 
 def miniprom():
     # load prometheus.yaml and start scraping it
@@ -110,48 +149,88 @@ def miniprom():
 
     print(CONFIG)
 
+    def scraper(job, targets, scrape_interval):
+        while True:
+            for mtarget in targets:
+                for target in mtarget['targets']:
+                    try:
+                        print('mini-prom: scraping: http://' + target + '/metrics')
+                        text = requests.get('http://' + target + '/metrics').text
+                        _time = time.time()
+                        for family in text_string_to_metric_families(text):
+                            METRICS_FAMILY[family.name] = {'help': family.documentation, 'type': family.type, 'unit': family.unit}
+                            for sample in family.samples:
+                                name = sample.name
+                                value = sample.value
+                                labels = sample.labels
+                                labels.update({'job': job, 'instance': target})
+
+                                if not name in METRICS_BY_NAME[CURRENT]['metrics']:
+                                    METRICS_BY_NAME[CURRENT]['metrics'][name] = {}
+                                _labels = str([l + '=' + labels[l] for l in sorted(labels)])
+                                if not _labels in METRICS_BY_NAME[CURRENT]['metrics'][name]:
+                                    METRICS_BY_NAME[CURRENT]['metrics'][name][_labels] = []
+
+                                METRICS_BY_NAME[CURRENT]['metrics'][name][_labels] += [[_time, value]]
+                                # limit this to 180 samples (simulate 3hrs@1s)
+                                if len(METRICS_BY_NAME[CURRENT]['metrics'][name][_labels]) >= 180:
+                                    print('mini-prom: pruning dats ' + name + '. ' + str(labels))
+                                    METRICS_BY_NAME[CURRENT]['metrics'][name][_labels].pop(0)
+                                _list = ast.literal_eval(_labels)
+                                _tags = dict(item.split('=') for item in _list)
+
+                        #for name in METRICS_BY_NAME[CURRENT]['metrics']:
+                        #    print(name + ': ' + str(METRICS_BY_NAME[CURRENT]['metrics'][name]))
+                    except Exception as x:
+                        # traceback.print_exc()
+                        print('mini-prom: scrape exception: ' + str(x))
+            time.sleep(scrape_interval)
+
+    import threading, pickle
     # todo: break this down into multiple threads and poll at the appropriate rates.
     def poller():
-        while True:
-            time.sleep(1) # server come up.
-            for config in CONFIG['scrape_configs']:
-                job = config['job_name']
-                targets = config['static_configs']
-                for mtarget in targets:
-                    for target in mtarget['targets']:
-                        try:
-                            print('mini-prom: scraping: http://' + target + '/metrics')
-                            text = requests.get('http://' + target + '/metrics').text
-                            _time = time.time()
-                            for family in text_string_to_metric_families(text):
-                                METRICS_FAMILY[family.name] = {'help': family.documentation, 'type': family.type, 'unit': family.unit}
-                                for sample in family.samples:
-                                    name = sample.name
-                                    value = sample.value
-                                    labels = sample.labels
-                                    labels.update({'job': job, 'instance': target})
+        time.sleep(1) # server come up.
+        for config in CONFIG['scrape_configs']:
+            job = config['job_name']
+            targets = config['static_configs']
+            scrape_interval = config['scrape_interval']
+            num, units = int(scrape_interval[0:-1]), scrape_interval[-1]
+            # support reasonable scrape intervals, not the unreasonable d, h, ms versions.
+            scrape_interval = num*(60 if units=='m' else 1)
+            threading.Thread(target=scraper, args=(job, targets, scrape_interval)).start()
 
-                                    if not name in METRICS_BY_NAME[CURRENT]['metrics']:
-                                        METRICS_BY_NAME[CURRENT]['metrics'][name] = {}
-                                    _labels = str([l + '=' + labels[l] for l in sorted(labels)])
-                                    if not _labels in METRICS_BY_NAME[CURRENT]['metrics'][name]:
-                                        METRICS_BY_NAME[CURRENT]['metrics'][name][_labels] = []
-                                    METRICS_BY_NAME[CURRENT]['metrics'][name][_labels] += [[_time, value]]
-                                    _list = ast.literal_eval(_labels)
-                                    _tags = dict(item.split('=') for item in _list)
+    try:
+        read_from_cloud('mini-prom.pickle')
+    except Exception as x:
+        #traceback.print_exc()
+        print('mini-prom: unable to read from mini-prom.pickle, state will be reset: ' + repr(x))
 
-                            #for name in METRICS_BY_NAME[CURRENT]['metrics']:
-                            #    print(name + ': ' + str(METRICS_BY_NAME[CURRENT]['metrics'][name]))
-                            time.sleep(10)
-                        except Exception as x:
-                            # traceback.print_exc()
-                            print('mini-prom: scrape exception: ' + str(x))
+    try:
+        file = open('mini-prom.pickle', 'rb')
+        global METRICS_BY_NAME, METRICS_FAMILY
+        with file:
+            METRICS_BY_NAME, METRICS_FAMILY = pickle.load(file)
+    except Exception as x:
+        print('mini-prom: unable to load local mini-prom.pickle: ' + repr(x))
 
+    def shutdown(signum, frame):
+        # passivate to the cloud bucket.
+        file = open('mini-prom.pickle', 'wb')
+        print('passivating to mini-prom.pickle')
+        with file:
+            pickle.dump([METRICS_BY_NAME, METRICS_FAMILY], file=file)
+        print('mini-prom: pickled mini-prom.pickle to disk')
+        write_to_cloud('mini-prom.pickle')
+        exit(0)
 
-    import threading
-    poller = threading.Thread(target=poller)
-    poller.start()
+    import signal
+    signal.signal(signal.SIGINT, shutdown)
+
+    poller()
+
+    print('mini-prom port=' + str(PORT))
     server.run(host='0.0.0.0', port=PORT)
 
 if __name__=='__main__':
+
     miniprom()

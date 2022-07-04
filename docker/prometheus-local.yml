@@ -1,0 +1,67 @@
+scrape_configs:
+  - job_name: 'load-test'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['host.docker.internal:7070']
+
+  - job_name: 'otel-collector'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['otel-collector:8889']
+      - targets: ['otel-collector:8888']
+
+  - job_name: 'jaeger'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['host.docker.internal:8000']
+      - targets: ['host.docker.internal:9080']
+      - targets: ['host.docker.internal:8083']
+
+  - job_name: 'prometheus'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['host.docker.internal:9090']
+
+  - job_name: 'victoria-metrics'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['host.docker.internal:8428']
+
+  - job_name: 'anomalizer'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['host.docker.internal:8056']
+
+  - job_name: 'anomalizer-engine'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['host.docker.internal:8060']
+
+  - job_name: 'anomalizer-images'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['host.docker.internal:8061']
+
+  - job_name: 'anomalizer-correlator'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['host.docker.internal:8062']
+
+  - job_name: 'docker'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['host.docker.internal:9323']
+
+  - job_name: 'scale'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['host.docker.internal:9092']
+
+  - job_name: 'grafana'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['host.docker.internal:3000']
+
+# export to VictoriaMetrics
+#remote_write:
+#  - url: http://host.docker.internal:8428/api/v1/write

@@ -1,8 +1,8 @@
 scrape_configs:
-  - job_name: 'anomalizer'
-    scrape_interval: 10s
-    static_configs:
-      - targets: ['localhost:8056']
+  #- job_name: 'anomalizer'
+  #  scrape_interval: 10s
+  #  static_configs:
+  #    - targets: ['localhost:8056']
 
   - job_name: 'anomalizer-engine'
     scrape_interval: 10s
@@ -18,6 +18,11 @@ scrape_configs:
     scrape_interval: 10s
     static_configs:
       - targets: ['localhost:8062']
+
+  - job_name: 'load-test'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:7070']
 
   - job_name: 'mini-prom'
     scrape_interval: 10s

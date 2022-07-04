@@ -32,3 +32,13 @@ APIFlask==1.0.2
 
 gunicorn==19.9.0
 webapp2==2.5.2
+
+# google cloud apis.
+google-api-core==1.31.6
+google-auth==1.35.0
+google-cloud-core==1.7.2
+google-cloud-logging==1.15.1
+google-cloud-storage==1.31.0
+google-crc32c==1.3.0
+google-resumable-media==1.3.3
+googleapis-common-protos==1.56.2

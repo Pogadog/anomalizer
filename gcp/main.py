@@ -14,24 +14,26 @@
 
 # [START gae_python38_app]
 # [START gae_python3_app]
-from flask import Flask, request, Response
+from flask import Flask, request, Response, send_from_directory
 import subprocess, requests
-import traceback
+import traceback, os
 import time
 
 # If `entrypoint` is not defined in app.yaml, App Engine will look for an app
 # called `app` in `main.py`.
-app = Flask(__name__)
+app = Flask(__name__, static_folder='web-build')
 
 ANOMALIZER_API = 'http://localhost:8056/'
 ANOMALIZER_ENGINE = 'http://localhost:8060/'
 ANOMALIZER_IMAGES = 'http://localhost:8061/'
 ANOMALIZER_CORRELATOR = 'http://localhost:8062/'
 
+'''
 @app.route('/')
 def hello():
     """Return a friendly HTTP greeting."""
     return 'Hello anomalizer-service on app-engine!'
+'''
 
 # thanks to: https://stackoverflow.com/questions/6656363/proxying-to-another-web-service-with-flask
 def _proxy(*args, **kwargs):
@@ -61,6 +63,12 @@ CONTEXT = ''
 @app.route('/', defaults={'u_path': ''}, methods=['GET', 'POST'])
 @app.route('/<path:u_path>')
 def catch_all(u_path):
+    if u_path != "" and os.path.exists(app.static_folder + '/' + u_path):
+        return send_from_directory(app.static_folder, u_path)
+    elif u_path == '/':
+        return send_from_directory(app.static_folder, 'index.html')
+    else:
+        pass
     global CONTEXT
     print('u_path=' + repr(u_path) + ',  url=' + request.url)
     # support direct proxies to the backend components.
@@ -94,7 +102,7 @@ def startup():
     print('cwd=' + os.getcwd())
     ENV = os.environ
     ENV['MICROSERVICES'] = 'microservices/'
-    subprocess.Popen(['python', 'microservices/anomalizer-service-fork.py'], close_fds=False, env=ENV)
+    subprocess.Popen(['python', 'microservices/anomalizer-service.py'], close_fds=False, env=ENV)
 
 startup()
 

@@ -11,6 +11,8 @@ try:
     # https://stackoverflow.com/questions/11585168/launch-an-independent-process-with-python
     processes.append(subprocess.Popen(['python', PATH + 'mini-prom.py'], close_fds=False))
     time.sleep(2)
+    processes.append(subprocess.Popen(['python', PATH + 'load-test.py'], close_fds=False))
+    time.sleep(2)
     processes.append(subprocess.Popen(['python', PATH + 'anomalizer-engine.py'], close_fds=False))
     time.sleep(2)
     processes.append(subprocess.Popen(['python', PATH + 'anomalizer-images.py'], close_fds=False))

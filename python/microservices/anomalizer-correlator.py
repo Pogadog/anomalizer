@@ -32,7 +32,7 @@ S_CORRELATE_ALL = S_CORRELATE.labels('all')
 
 S_TO_IMAGE = shared.S_TO_IMAGE
 
-@S_TO_IMAGE.time()
+@S_TO_IMAGE.labels('correlator').time()
 def to_image(fig, id=None):
     return fig.to_image(format='jpg')
 
@@ -68,7 +68,7 @@ def poll_dataframes():
         with shared.S_POLL_METRICS.labels('correlator').time():
             try:
                 result = requests.get(ANOMALIZER_ENGINE + '/dataframes')
-                assert result.status_code == 200
+                assert result.status_code == 200, 'unable to call engine/dataframes'
                 ANOMALIZER_ENGINE_HEALTHY = True
                 dataframes = result.json()['dataframes']
                 id_map = result.json()['id_map']

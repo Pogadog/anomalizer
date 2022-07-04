@@ -128,7 +128,7 @@ def metrics():
     response.mimetype = "text/plain"
     return response
 
-@S_TO_IMAGE.time()
+@S_TO_IMAGE.labels('images').time()
 def to_image(fig, id=None):
     return fig.to_image(format='jpg')
 
@@ -137,56 +137,118 @@ def poll_images():
     while True:
         print('images: poll_images')
         with shared.S_POLL_METRICS.labels('images').time():
-            # 1. ask the anomalizer-engine for a list of metric ids.
-            # 2. grab the dataframe for each image-id
-            # 3. convert to an image and cache.
-            # 4. TODO: bulk queries.
-            ids = requests.get(ANOMALIZER_ENGINE + '/ids')
-            assert ids.status_code == 200
-            ANOMALIZER_ENGINE_HEALTHY = True
-            ids = ids.json()
+            try:
+                # 1. ask the anomalizer-engine for a list of metric ids.
+                # 2. grab the dataframe for each image-id
+                # 3. convert to an image and cache.
+                # 4. TODO: bulk queries.
 
-            #print('ids=' + str(ids))
-            for id in ids:
-                try:
-                    result = requests.get(ANOMALIZER_ENGINE + '/dataframes/' + id)
-                    assert result.status_code == 200
-                    result = result.json()
-                    dataframes = result['dataframes']
-                    labels = result['labels'][id]
-                    id_map = result['id_map']
-                    stats = result['stats'][id]
-                    features = result['features'][id]
-                    query  = result['queries'][id]
-                    cardinality = result['cardinalities'][id]
-                    metric_types = result['metric_types']
-                    status = result['status'][id]
+                #print('ids=' + str(ids))
+                ids = requests.get(ANOMALIZER_ENGINE + '/ids')
+                assert ids.status_code == 200, 'unable to call engine/ids'
+                ANOMALIZER_ENGINE_HEALTHY = True
+                ids = ids.json()
+                for id in ids:
+                    try:
+                        result = requests.get(ANOMALIZER_ENGINE + '/dataframes/' + id)
+                        assert result.status_code == 200, 'unable to call engine/dataframes'
+                        result = result.json()
+                        dataframes = result['dataframes']
+                        labels = result['labels'][id]
+                        id_map = result['id_map']
+                        stats = result['stats'][id]
+                        features = result['features'][id]
+                        query  = result['queries'][id]
+                        cardinality = result['cardinalities'][id]
+                        metric_types = result['metric_types']
+                        status = result['status'][id]
 
-                    metric = id_map[id]
-                    dfp = pd.read_json(dataframes[id], orient='index').T
+                        metric = id_map[id]
 
-                    type = metric_types[id]
+                        #print('anomalizer-images: rendering metric: ' + metric)
 
-                    fig = px.line(dfp, title=metric, color_discrete_sequence=px.colors.qualitative.Bold)
-                    if type != 'histogram' and type != 'summary':
-                        fig.update_layout(xaxis={'title': ''}, legend_title="tag") #, legend_x=0, legend_y=-0.1+-0.1*len(labels))
+                        dfp = pd.read_json(dataframes[id], orient='index').T
 
-                    fig.update_layout(template=None, height=400, width=400, autosize=False, font={'size': 11}, title={'x': 0.05, 'xanchor': 'left'})
-                    fig.update_xaxes(showgrid=False)
-                    fig.update_yaxes(showgrid=False)
-                    fig.update_layout(showlegend=True)
+                        type = metric_types[id]
 
-                    FIGURES[id] = fig
+                        fig = px.line(dfp, title=metric, color_discrete_sequence=px.colors.qualitative.Bold)
+                        if type != 'histogram' and type != 'summary':
+                            fig.update_layout(xaxis={'title': ''}, legend_title="tag") #, legend_x=0, legend_y=-0.1+-0.1*len(labels))
 
-                    img_bytes = to_image(fig)
-                    encoding = b64encode(img_bytes).decode()
-                    img_b64 = "data:image/jpg;base64," + encoding
+                        fig.update_layout(template=None, height=400, width=400, autosize=False, font={'size': 11}, title={'x': 0.05, 'xanchor': 'left'})
+                        fig.update_xaxes(showgrid=False)
+                        fig.update_yaxes(showgrid=False)
+                        fig.update_layout(showlegend=True)
 
-                    IMAGES[id] = {'type': type, 'plot': 'timeseries', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric, 'cardinality': cardinality, 'tags': labels, 'stats': stats}
+                        FIGURES[id] = fig
 
-                except:
-                    #traceback.print_exc()
-                    ANOMALIZER_ENGINE_HEALTHY = False
+                        img_bytes = to_image(fig)
+                        encoding = b64encode(img_bytes).decode()
+                        img_b64 = "data:image/jpg;base64," + encoding
+
+                        IMAGES[id] = {'type': type, 'plot': 'timeseries', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric, 'cardinality': cardinality, 'tags': labels, 'stats': stats}
+
+
+                    except Exception as x:
+                        #traceback.print_exc()
+                        print('anomalizer-images: ' + repr(x))
+
+                # scattergrams.
+                result = requests.get(ANOMALIZER_ENGINE + '/scattergrams')
+                assert result.status_code == 200, 'unable to call engine/scattergrams'
+                result = result.json()
+                for scat_id, v in result.items():
+                    FIGURES[scat_id] = []
+                    for i, x in enumerate(v):
+                        dxy = pd.read_json(x['xy'], orient='index').T
+                        metric = x['metric']
+                        dii = dxy.iloc[:,0]
+                        dxi = dxy.iloc[:,1]
+                        dyi = dxy.iloc[:,2]
+                        fig = px.scatter(x=dxi, y=dyi, title=metric + '.' + str(i), labels={'x':'rate(/sec)', 'y':'value'}, color=dii)
+                        fig.update_layout(template=None, height=400, width=400, autosize=False, font={'size': 11}, title={'x': 0.05, 'xanchor': 'left'})
+                        fig.update_xaxes(showgrid=False)
+                        fig.update_yaxes(showgrid=False)
+                        fig.update_layout(showlegend=True)
+
+                        # overlay hockey-stick if present.
+                        dl1 = pd.read_json(x['l1'], orient='index').T
+                        dl2 = pd.read_json(x['l2'], orient='index').T
+                        if len(dl1) and len(dl2):
+                            # add lines to an existing scattergram (scat)
+                            line1 = go.Scatter(x=dl1[0], y=dl1[1], mode='lines', showlegend=False, line_color='blue')
+                            line2 = go.Scatter(x=dl2[0], y=dl2[1], mode='lines', showlegend=False)
+
+                            fig.add_trace(line1)
+                            fig.add_trace(line2)
+
+                        features = {}
+                        stats = {}
+                        FIGURES[scat_id] += [(fig, features, stats)]
+
+                        print('anomalizer-images: scattergram=' + metric + '.' + str(i))
+
+                        img_bytes = to_image(fig)
+                        encoding = b64encode(img_bytes).decode()
+                        img_b64 = "data:image/jpg;base64," + encoding
+
+                        # the following attributes are derived from the time-series image.
+                        type = ''
+                        id, _ = scat_id.split('.')
+                        query = ''
+                        features = x['features']
+                        cardinality = x['cardinality']
+                        labels = x['labels']
+                        stats = x['stats']
+                        status = x['status']
+
+                        IMAGES[scat_id + '.' + str(i)] = {'type': type, 'plot': 'scatter', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric, 'cardinality': cardinality, 'tags': labels, 'stats': stats}
+
+            except Exception as x:
+                traceback.print_exc()
+
+                print('anomalizer-images: ' + repr(x))
+                ANOMALIZER_ENGINE_HEALTHY = False
         time.sleep(1)
 
 def startup():

@@ -3,6 +3,7 @@
 import os, time, threading, traceback, gc, psutil, requests, uuid, json, re, ast, enum, math
 import pandas as pd
 import numpy as np
+from copy import deepcopy
 
 from collections import defaultdict
 from flask import jsonify, request, make_response
@@ -41,6 +42,7 @@ LABELS = PROMETHEUS + '/api/v1/labels'
 ID_MAP = {}
 METRIC_MAP = {}
 DATAFRAMES = {}
+SCATTERGRAMS = {}
 STATS = {}
 STATUS = {}
 LABELS = {}
@@ -98,6 +100,17 @@ def dataframes():
     dfs = [[id, df.to_json()] for id, df in DATAFRAMES.copy().items()]
     dfs = dfs[0:limit]
     return jsonify({'dataframes': dfs, 'id_map': id_map, 'metric_map': metric_map, 'labels': labels, 'stats': stats, 'queries': queries, 'features': features, 'cardinalities': cardinalities, 'metric_types': metric_types, 'status': status})
+
+@app.route('/scattergrams')
+def scattergrams():
+    scattergrams = deepcopy(SCATTERGRAMS)
+    for k,v in scattergrams.items():
+        for x in v:
+            x['xy'] = x['xy'].to_json()
+            x['l1'] = x['l1'].to_json()
+            x['l2'] = x['l2'].to_json()
+
+    return jsonify(scattergrams)
 
 @app.route('/dataframes/<ids>')
 def dataframes_ids(ids):
@@ -188,8 +201,8 @@ def _metadata():
         meta = requests.get(META).json()['data']
         for m in list(meta.keys())[:]:
             METRIC_TYPES[m] = meta[m][0]['type'] # todo: handle multi-variable
-            if not m in METRIC_MAP:
-                del meta[m]
+            #if not m in METRIC_MAP:
+            #    del meta[m]
         #print('METRIC_TYPES=' + str(METRIC_TYPES))
         return {'status': 'success', 'data': meta}
     except Exception as x:
@@ -264,7 +277,7 @@ def get_prometheus(metric, _rate, type, step):
         PROMETHEUS_HEALTHY = False
         raise
 
-def hockey_stick(dxi, dyi, N=3):
+def hockey_stick(dxi, dyi, N=5):
     dxy = pd.concat([dxi, dyi], axis=1)
     dxy.columns=['x', 'y']
     dxy = dxy.sort_values(by='x')
@@ -272,26 +285,36 @@ def hockey_stick(dxi, dyi, N=3):
     x = dxy['x']
     y = dxy['y']
 
+    xmin, xmax = min(x), max(x)
+
     xr = x.max()-x.min()
     yr = y.max()-y.min()
 
-    NUM = N-1
-    DEN = N
+    xx = x.le(xmin+xr*(N-1)//N)
 
     # fit linear models to the first and second halfs of the x/y data, sorted by x, and then look for the change
     # in gradient to indicate a hockeystick.
-    x1 = x.iloc[0:len(x)*NUM//DEN]
-    y1 = y.iloc[0:len(y)*NUM//DEN]
+    x1 = x[xx]
+    y1 = y[xx]
     fit1 = np.polyfit(x1, y1, 1)
     p1 = np.poly1d(fit1)
 
-    x2 = x[len(x)*NUM//DEN:]
-    y2 = y[len(y)*NUM//DEN:]
+    xx = x.ge(xmin+xr*(N-1)//N)
+    x2 = x[xx]
+    y2 = y[xx]
     fit2 = np.polyfit(x2, y2, 1)
     p2 = np.poly1d(fit2)
 
+    xp1 = np.linspace(min(x1), max(x1), 2)
+    yp1 = p1(xp1)
+    l1 = pd.DataFrame([xp1, yp1]).T
+
+    xp2 = np.linspace(min(x2), max(x2), 2)
+    yp2 = p2(xp2)
+    l2 = pd.DataFrame([xp2, yp2]).T
+
     # return the ratio of the second and first grafndients. > 2 is a hockey-stick feature.
-    return p1[1]*xr/yr, p2[1]*xr/yr
+    return p1, p2, l1, l2
 
 def no_nan(dict):
     dict = {k: 0 if math.isnan(v) else v for k, v in dict.items()}
@@ -338,6 +361,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
             # TODO: also produce a load/latency scattergram from _sum and _count.
             if type=='histogram' or type=='summary':
                 scat_id = id + '.scatter'
+                SCATTERGRAMS[scat_id] = []
                 dx = pd.DataFrame(values_count).fillna(0) # per-second
                 dy = pd.DataFrame(values).fillna(0)
                 maxdy = dy.max().max()
@@ -353,6 +377,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                         dyi = dy.loc[i]
                         index = pd.DataFrame(dx.T.index)
                         dxy = pd.concat([index, dxi, dyi], axis=1)
+                        dxy.columns = ['i', 'x', 'y']
                         # remove zero rows.
                         dxy = dxy.loc[(dxy.iloc[:,1:3]!=0).any(1)]
 
@@ -360,12 +385,15 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                         dxi = dxy.iloc[:,1]
                         dyi = dxy.iloc[:,2]
 
-                        features = FEATURES[id]
+                        features = FEATURES[scat_id]
+                        features.clear()
                         # for a hockey-stick: require x to at least double over the domain.
-                        if (dxi.max() > 2*dxi.min()):
+                        l1, l2 = pd.DataFrame(), pd.DataFrame()
+                        if (dxi.max() > 1.5*dxi.min()):
                             try:
-                                p1, p2 = hockey_stick(dxi, dyi)
-                                ratio = p2-p1
+                                p1, p2, l1, l2 = hockey_stick(dxi, dyi)
+                                print('>>> scat ' + metric)
+                                ratio = p2[1]/p1[1] if p1[1] else 0
                                 if math.isnan(ratio):
                                     ratio = 0
                                 # normalize hockeysticks to range 0-1.
@@ -381,6 +409,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                                 traceback.print_exc()
                                 print('problem computing hockey-stick: ' + metric + '.' + str(i) + ': ' + str(x))
 
+
                         _mean = dyi.mean()
                         _max = dyi.max()
                         _min = dyi.min()
@@ -392,7 +421,9 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
 
                         stats = {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': _mean, 'std': std, 'spike': spike}
                         stats = no_nan(stats)
-                        STATS[id] = stats
+
+                        status = STATUS.get(id, Status.NORMAL.value)
+                        SCATTERGRAMS[scat_id] += [{'xy': dxy, 'stats': stats, 'labels': labels, 'cardinality': cardinality, 'metric': metric, 'l1': l1, 'l2': l2, 'features': features, 'status': status}]
 
                     else:
                         pass
@@ -459,7 +490,6 @@ def poll_metrics():
                 values = [[0]*(maxlen - len(row))+row for row in values]
                 dfp = pd.DataFrame(columns= np.arange(len(labels)).T, data=np.array(values).T)
                 if labels:
-                    #print('rendering metric: ' + metric)
                     METRICS_TOTAL_TS += len(labels)
                     # forward/backward map between metrics and their ids.
                     ID_MAP[id] = metric
@@ -487,11 +517,12 @@ def poll_metrics():
                         snr = (low/high).fillna(0).sum()
 
                     features = FEATURES[id]
+                    features.clear()
                     if std > LIMIT:
                         mean_shift = (data2.mean()-data1.mean()).max()/mean
                         if mean_shift > INCREASE_THRESH:
                             features.update({'increasing': {'increase': mean_shift}})
-                        if mean_shift < DECREASE_THRESH:
+                        elif mean_shift < DECREASE_THRESH:
                             features.update({'decreasing': {'decrease': mean_shift}})
 
                     if not dfp is None:
@@ -525,6 +556,7 @@ def poll_metrics():
                         STATUS[id] = status.value
 
             else:
+                print('anomalizer-engine: dropping ' + metric)
                 METRICS_DROPPED += 1
                 cleanup(id, metric)
 

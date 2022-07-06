@@ -32,10 +32,28 @@ try:
         engine.startup()
         engine.app.run(port=8060)
     elif n1!=0 and n2==0:
-        time.sleep(4)
-        engine = __import__('anomalizer-images')
-        engine.startup()
-        engine.app.run(port=8061)
+        n0 = os.fork()
+        n1 = os.fork()
+        if n0==0 and n1==0:
+            time.sleep(4)
+            engine = __import__('anomalizer-images')
+            engine.startup()
+            engine.app.run(port=8061)
+        elif n0==0 and n1!=0:
+            time.sleep(4)
+            engine = __import__('anomalizer-images')
+            engine.startup()
+            engine.app.run(port=18061)
+        elif n0!=0 and n1==0:
+            time.sleep(4)
+            engine = __import__('anomalizer-images')
+            engine.startup()
+            engine.app.run(port=28061)
+        elif n0!=0 and n1!=0:
+            time.sleep(4)
+            engine = __import__('anomalizer-images')
+            engine.startup()
+            engine.app.run(port=38061)
     else:
         n3 = os.fork()
         if n3==0:

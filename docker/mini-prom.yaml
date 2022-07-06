@@ -9,10 +9,25 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:8060']
 
-  - job_name: 'anomalizer-images'
+  - job_name: 'anomalizer-images-0'
     scrape_interval: 10s
     static_configs:
       - targets: ['localhost:8061']
+
+  - job_name: 'anomalizer-images-1'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:18061']
+
+  - job_name: 'anomalizer-images-2'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:28061']
+
+  - job_name: 'anomalizer-images-3'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:38061']
 
   - job_name: 'anomalizer-correlator'
     scrape_interval: 10s

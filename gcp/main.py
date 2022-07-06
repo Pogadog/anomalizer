@@ -106,6 +106,8 @@ def startup():
 
 startup()
 
+print(os.environ)
+
 # allow time for the services to come up.
 time.sleep(6)
 if __name__ == '__main__':

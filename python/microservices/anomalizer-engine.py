@@ -14,6 +14,9 @@ from health import Health
 import shared
 from shared import C_EXCEPTIONS_HANDLED
 
+import warnings
+warnings.simplefilter('ignore', np.RankWarning)
+
 H_PROMETHEUS_CALL = Histogram('anomalizer_prometheus_request_latency', 'request latency for prometheus metrics')
 
 import logging
@@ -278,6 +281,7 @@ def get_prometheus(metric, _rate, type, step):
         raise
 
 def hockey_stick(dxi, dyi, N=5):
+
     dxy = pd.concat([dxi, dyi], axis=1)
     dxy.columns=['x', 'y']
     dxy = dxy.sort_values(by='x')
@@ -389,10 +393,9 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                         features.clear()
                         # for a hockey-stick: require x to at least double over the domain.
                         l1, l2 = pd.DataFrame(), pd.DataFrame()
-                        if (dxi.max() > 1.5*dxi.min()):
+                        if (dxi.max() > 1.5*dxi.min() and len(dxi) > 20):
                             try:
                                 p1, p2, l1, l2 = hockey_stick(dxi, dyi)
-                                print('>>> scat ' + metric)
                                 ratio = p2[1]/p1[1] if p1[1] else 0
                                 if math.isnan(ratio):
                                     ratio = 0
@@ -519,7 +522,7 @@ def poll_metrics():
                     features = FEATURES[id]
                     features.clear()
                     if std > LIMIT:
-                        mean_shift = (data2.mean()-data1.mean()).max()/mean
+                        mean_shift = (data2.mean()-data1.mean()).max()/mean if mean else 0
                         if mean_shift > INCREASE_THRESH:
                             features.update({'increasing': {'increase': mean_shift}})
                         elif mean_shift < DECREASE_THRESH:
@@ -556,7 +559,7 @@ def poll_metrics():
                         STATUS[id] = status.value
 
             else:
-                print('anomalizer-engine: dropping ' + metric)
+                #print('anomalizer-engine: dropping ' + metric)
                 METRICS_DROPPED += 1
                 cleanup(id, metric)
 

@@ -81,10 +81,17 @@ def metrics():
     response.mimetype = "text/plain"
     return response
 
+gauges = [Gauge('anomalizer_load_gauge_' + str(i), 'poll-time (seconds)') for i in range(10)]
+
 def load_test(index):
     endpoint = 'http://localhost:7070/server'
+    count = 0
     while True:
+        # generate a lot of synthetic gauges.
         #print('load_test: ' + current_thread().name)
+        for gauge in gauges:
+            gauge.set(count)
+        count += 1
         if not current_thread() in THREADS:
             break
         with S_CLIENT_TOTAL.labels([endpoint]).time():

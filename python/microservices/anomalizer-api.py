@@ -2,13 +2,14 @@
 # * anomalizer-images
 # * anomalizer-engine
 
-import os
+import os, json
 
 from flask import Flask, jsonify, request, make_response, send_from_directory
 
 from apiflask import APIFlask, Schema
 from apiflask.fields import String, Boolean
 from health import Health
+import shared
 
 from flask import request, Response
 import requests
@@ -86,11 +87,25 @@ def ids():
     return _proxy(ANOMALIZER_ENGINE)
 
 @app.route('/images')
-def images_html():
-    return _proxy(ANOMALIZER_IMAGES)
+def images():
+
+    # TODO: Check each shard, accumulate the results.
+    images = {}
+    headers = {}
+    for i in range(0, shared.SHARDS):
+        # TODO: some kind of discovery here, rather than hard-wired ports
+        endpoint = shared.shard_endpoint(ANOMALIZER_IMAGES, i)
+        image = _proxy(endpoint)
+        if image:
+            headers = image.headers
+            print('images: shard=' + str(i) + ', #IMAGES=' + str(len(image.json)))
+            images.update(image.json)
+    # use the headers from the image response to make a valid response here.
+    response = Response(bytes(json.dumps(images), 'utf-8'), 200, headers)
+    return response
 
 @app.route('/images/html')
-def images():
+def images_html():
     return _proxy(ANOMALIZER_IMAGES)
 
 @app.route('/server-metrics')
@@ -111,7 +126,10 @@ def filter():
 
 @app.route('/figure/<id>')
 def figure_id(id):
-    return _proxy(ANOMALIZER_IMAGES)
+    id = id.split('.')[0] # handle scattergram ids.
+    shard = shared.shard(id)
+    endpoint = shared.shard_endpoint(ANOMALIZER_IMAGES, shard)
+    return _proxy(endpoint)
 
 @app.route('/metrics')
 def metrics():

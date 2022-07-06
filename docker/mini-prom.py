@@ -98,19 +98,24 @@ def query_range():
     if split[0].endswith('rate'):
         metric, rate = split[1].split('[')
         rate = rate.split(']')[0]
+        rate, unit = int(rate[0:-1]), rate[-1]
+        if unit=='m':
+            rate *= 60
     else:
         metric = split[1]
         rate = None
 
     current = METRICS_BY_NAME[CURRENT]
+    family = METRICS_FAMILY.get(metric, {})
     m = current['metrics'].get(metric)
     result = blob['data']['result']
     if m:
         for tag in m:
             values = [[_m[0], str(_m[1])] for _m in m[tag]]
-            if values and rate:
+            if values and rate and not (metric.endswith('_count')):
                 dvalues = pd.DataFrame(values, dtype=float)
                 diff = dvalues.diff()
+                diff = diff.rolling(rate//60).mean() # TODO: read the time interval from the metric (or scrape).
                 diff = diff.fillna(0)
                 dvalues.iloc[:,1:] = diff.iloc[:,1:]
                 values = dvalues.values.tolist()
@@ -199,19 +204,20 @@ def miniprom():
             scrape_interval = num*(60 if units=='m' else 1)
             threading.Thread(target=scraper, args=(job, targets, scrape_interval)).start()
 
-    try:
-        read_from_cloud('mini-prom.pickle')
-    except Exception as x:
-        #traceback.print_exc()
-        print('mini-prom: unable to read from mini-prom.pickle, state will be reset: ' + repr(x))
+    if os.environ.get('RESTORE_STATE', None):
+        try:
+            read_from_cloud('mini-prom.pickle')
+        except Exception as x:
+            #traceback.print_exc()
+            print('mini-prom: unable to read from mini-prom.pickle, state will be reset: ' + repr(x))
 
-    try:
-        file = open('mini-prom.pickle', 'rb')
-        global METRICS_BY_NAME, METRICS_FAMILY
-        with file:
-            METRICS_BY_NAME, METRICS_FAMILY = pickle.load(file)
-    except Exception as x:
-        print('mini-prom: unable to load local mini-prom.pickle: ' + repr(x))
+        try:
+            file = open('mini-prom.pickle', 'rb')
+            global METRICS_BY_NAME, METRICS_FAMILY
+            with file:
+                METRICS_BY_NAME, METRICS_FAMILY = pickle.load(file)
+        except Exception as x:
+            print('mini-prom: unable to load local mini-prom.pickle: ' + repr(x))
 
     def shutdown(signum, frame):
         # passivate to the cloud bucket.

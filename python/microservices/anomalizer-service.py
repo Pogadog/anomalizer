@@ -2,12 +2,14 @@
 # TODO: make it detect changes in the source and relaunch.
 
 import subprocess, time, os
+import shared
 processes = []
 
 PATH = os.environ.get('MICROSERVICES', '')
 print('PATH=' + PATH)
 
 try:
+
     # https://stackoverflow.com/questions/11585168/launch-an-independent-process-with-python
     processes.append(subprocess.Popen(['python', PATH + 'mini-prom.py'], close_fds=False))
     time.sleep(2)
@@ -15,7 +17,10 @@ try:
     time.sleep(2)
     processes.append(subprocess.Popen(['python', PATH + 'anomalizer-engine.py'], close_fds=False))
     time.sleep(2)
-    processes.append(subprocess.Popen(['python', PATH + 'anomalizer-images.py'], close_fds=False))
+    ENV = os.environ
+    ENV['SHARDS'] = str(shared.SHARDS)
+    for i in range(0, shared.SHARDS):
+        processes.append(subprocess.Popen(['python', PATH + 'anomalizer-images.py'], close_fds=False, env=ENV.update({'SHARD': str(i)})))
     time.sleep(2)
     processes.append(subprocess.Popen(['python', PATH + 'anomalizer-correlator.py'], close_fds=False))
     time.sleep(2)

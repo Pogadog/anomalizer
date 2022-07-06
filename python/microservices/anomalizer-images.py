@@ -10,10 +10,17 @@ from health import Health
 import shared
 from shared import C_EXCEPTIONS_HANDLED
 
-from prometheus_client import Summary
+# Are we sharded?
+SHARD = int(os.environ.get('SHARD', '0'))
+SHARDS = int(os.environ.get('SHARDS', '0'))
+print('anomalier-images: SHARDS=' + str(SHARDS) + ', SHARD=' + str(SHARD))
+
+from prometheus_client import Summary, Gauge
 
 S_TO_IMAGE = shared.S_TO_IMAGE
 S_FIGURE = Summary('anomalizer_figures_seconds', 'time to compute figures')
+
+G_NUM_IMAGES = Gauge('anomalizer_num_images', 'number of images in memory')
 
 from flask import jsonify, request, make_response
 from apiflask import APIFlask, Schema
@@ -33,7 +40,7 @@ FIGURES = {}
 
 app = APIFlask(__name__, title='anomalizer-images')
 
-PORT = int(os.environ.get('ANOMALIZER_IMAGES_PORT', 8061))
+PORT = int(os.environ.get('ANOMALIZER_IMAGES_PORT', SHARD*10000+8061))
 
 @app.route('/health')
 def health():
@@ -135,7 +142,8 @@ def to_image(fig, id=None):
 def poll_images():
     global ANOMALIZER_ENGINE_HEALTHY
     while True:
-        print('images: poll_images')
+        print('images: poll_images, SHARD=' + str(SHARD) + ', #IMAGES=' + str(len(IMAGES)))
+        start = time.time()
         with shared.S_POLL_METRICS.labels('images').time():
             try:
                 # 1. ask the anomalizer-engine for a list of metric ids.
@@ -143,32 +151,38 @@ def poll_images():
                 # 3. convert to an image and cache.
                 # 4. TODO: bulk queries.
 
-                #print('ids=' + str(ids))
-                ids = requests.get(ANOMALIZER_ENGINE + '/ids')
-                assert ids.status_code == 200, 'unable to call engine/ids'
+                dataframes = requests.get(ANOMALIZER_ENGINE + '/dataframes')
+                assert dataframes.status_code == 200, 'unable to get engine/dataframes'
+                dataframes = dataframes.json()
+                # in-place translation of incoming dataframes.
+                for dataframe in dataframes['dataframes']:
+                    id, df = dataframe
+                    _df = pd.read_json(df, orient='index').T
+                    dataframe[1] = _df
+
                 ANOMALIZER_ENGINE_HEALTHY = True
-                ids = ids.json()
-                for id in ids:
+
+                for df in dataframes['dataframes']:
+                    id = df[0]
+                    # sharding algorithm.
+                    shard = shared.shard(id)
+                    if shard!=SHARD:
+                        #print('images: ignoring ' + id + ' because SHARD=' + str(SHARD))
+                        continue
                     try:
-                        result = requests.get(ANOMALIZER_ENGINE + '/dataframes/' + id)
-                        assert result.status_code == 200, 'unable to call engine/dataframes'
-                        result = result.json()
-                        dataframes = result['dataframes']
-                        labels = result['labels'][id]
-                        id_map = result['id_map']
-                        stats = result['stats'][id]
-                        features = result['features'][id]
-                        query  = result['queries'][id]
-                        cardinality = result['cardinalities'][id]
-                        metric_types = result['metric_types']
-                        status = result['status'][id]
+                        dfp = df[1]
+                        labels = dataframes['labels'][id]
+                        id_map = dataframes['id_map']
+                        stats = dataframes['stats'][id]
+                        features = dataframes['features'][id]
+                        query  = dataframes['queries'][id]
+                        cardinality = dataframes['cardinalities'][id]
+                        metric_types = dataframes['metric_types']
+                        status = dataframes['status'][id]
 
                         metric = id_map[id]
 
                         #print('anomalizer-images: rendering metric: ' + metric)
-
-                        dfp = pd.read_json(dataframes[id], orient='index').T
-
                         type = metric_types[id]
 
                         fig = px.line(dfp, title=metric, color_discrete_sequence=px.colors.qualitative.Bold)
@@ -226,7 +240,7 @@ def poll_images():
                         stats = {}
                         FIGURES[scat_id] += [(fig, features, stats)]
 
-                        print('anomalizer-images: scattergram=' + metric + '.' + str(i))
+                        #print('anomalizer-images: scattergram=' + metric + '.' + str(i))
 
                         img_bytes = to_image(fig)
                         encoding = b64encode(img_bytes).decode()
@@ -249,6 +263,8 @@ def poll_images():
 
                 print('anomalizer-images: ' + repr(x))
                 ANOMALIZER_ENGINE_HEALTHY = False
+            shared.G_POLL_METRICS.labels('images').set(time.time()-start)
+            G_NUM_IMAGES.set(len(IMAGES))
         time.sleep(1)
 
 def startup():

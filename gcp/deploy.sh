@@ -1,8 +1,9 @@
 #!/bin/bash -x
 
-# force a commit of the active files to get a traceable githash.
+# force a commit of the active files to get a traceable githash. Don't promote automatically to avoid
+# broken deployments.
 
-gcloud app deploy app.yaml  <<.
+gcloud app deploy --no-promote app.yaml  <<.
 y
 .
 

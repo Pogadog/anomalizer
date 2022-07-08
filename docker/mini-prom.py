@@ -179,7 +179,7 @@ def miniprom():
                                 METRICS_BY_NAME[CURRENT]['metrics'][name][_labels] += [[_time, value]]
                                 # limit this to 180 samples (simulate 3hrs@1s)
                                 if len(METRICS_BY_NAME[CURRENT]['metrics'][name][_labels]) >= 180:
-                                    print('mini-prom: pruning dats ' + name + '. ' + str(labels))
+                                    #print('mini-prom: pruning data ' + name + '. ' + str(labels))
                                     METRICS_BY_NAME[CURRENT]['metrics'][name][_labels].pop(0)
                                 _list = ast.literal_eval(_labels)
                                 _tags = dict(item.split('=') for item in _list)

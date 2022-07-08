@@ -280,7 +280,7 @@ def get_prometheus(metric, _rate, type, step):
         PROMETHEUS_HEALTHY = False
         raise
 
-def hockey_stick(dxi, dyi, N=5):
+def hockey_stick(metric, dxi, dyi, N=5):
 
     dxy = pd.concat([dxi, dyi], axis=1)
     dxy.columns=['x', 'y']
@@ -303,11 +303,13 @@ def hockey_stick(dxi, dyi, N=5):
     fit1 = np.polyfit(x1, y1, 1)
     p1 = np.poly1d(fit1)
 
-    xx = x.ge(xmin+xr*(N-1)//N)
+    xx = x.ge(xmin+xr*(N-1)/N)
     x2 = x[xx]
     y2 = y[xx]
     fit2 = np.polyfit(x2, y2, 1)
     p2 = np.poly1d(fit2)
+
+    #print('metric=' + metric + ', p1=' + str(p1).replace('\n', ' ') + ', p2=' + str(p2).replace('\n', ' '))
 
     xp1 = np.linspace(min(x1), max(x1), 2)
     yp1 = p1(xp1)
@@ -317,8 +319,8 @@ def hockey_stick(dxi, dyi, N=5):
     yp2 = p2(xp2)
     l2 = pd.DataFrame([xp2, yp2]).T
 
-    # return the ratio of the second and first grafndients. > 2 is a hockey-stick feature.
-    return p1, p2, l1, l2
+    # return the normalized second and first grafndients
+    return p1[1]*xr/yr, p2[1]*xr/yr, l1, l2
 
 def no_nan(dict):
     dict = {k: 0 if math.isnan(v) else v for k, v in dict.items()}
@@ -395,22 +397,23 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                         l1, l2 = pd.DataFrame(), pd.DataFrame()
                         if (dxi.max() > 1.5*dxi.min() and len(dxi) > 20):
                             try:
-                                p1, p2, l1, l2 = hockey_stick(dxi, dyi)
-                                ratio = p2[1]/p1[1] if p1[1] else 0
+                                p1, p2, l1, l2 = hockey_stick(metric + '.' + str(i), dxi, dyi)
+                                ratio = 0
+                                ratio = p2 - p1
                                 if math.isnan(ratio):
                                     ratio = 0
                                 # normalize hockeysticks to range 0-1.
                                 features['hockeyratio'] = ratio
                                 if ratio > 2:
                                     ratio = min(4, ratio)/4
-                                    features.update({'hockeystick': {'increasing': ratio}})
+                                    features.update({'hockeystick': {'increasing': ratio, 'p1': p1, 'p2':p2}})
                                 elif ratio < -2:
                                     ratio = max(-4, ratio)/4
-                                    features.update({'hockeystick':  {'decreasing': ratio}})
+                                    features.update({'hockeystick':  {'decreasing': ratio, 'p1': p1, 'p2':p2}})
 
                             except Exception as x:
-                                traceback.print_exc()
-                                print('problem computing hockey-stick: ' + metric + '.' + str(i) + ': ' + str(x))
+                                # traceback.print_exc()
+                                print('problem computing hockey-stick: ' + metric + '.' + str(i) + ': ' + repr(x))
 
 
                         _mean = dyi.mean()
@@ -460,7 +463,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
 
         return labels, values, query, dfp
     except Exception as x:
-        traceback.print_exc()
+        # traceback.print_exc()
         print('error collecting DATAFRAME: ' + metric + '.' + id + ': ' + str(x))
         C_EXCEPTIONS_HANDLED.labels(x.__class__.__name__).inc()
         INTERNAL_FAILURE = True
@@ -579,24 +582,16 @@ def startup():
     thread = threading.Thread(target=resource_monitoring)
     thread.start()
 
-G_POLL_TIME = Gauge('anomalizer_poll_time', 'poll-time (seconds)')
-G_METRICS = Gauge('anomalizer_num_metrics', 'number of metrics')
 G_METRICS_AVAILABLE = Gauge('anomalizer_num_metrics_available', 'number of metrics available on server')
 G_METRICS_PROCESSED = Gauge('anomalizer_num_metrics_processed', 'number of metrics processed')
 G_METRICS_DROPPED = Gauge('anomalizer_num_metrics_dropped', 'number of metrics dropped')
 G_METRICS_TOTAL_TS = Gauge('anomalizer_num_metrics_total_timeseries', 'number of time-series available on server')
-G_MEMORY_RSS = Gauge('anomalizer_memory_rss', 'resident memory consumption of program', unit='GB')
-G_MEMORY_VMS = Gauge('anomalizer_memory_vms', 'virtual memory consumption of program', unit='GB')
-G_THREADS = Gauge('anomalizer_active_threads', 'number of active threads')
+G_METRICS = Gauge('anomalizer_num_metrics', 'number of metrics')
+G_POLL_TIME = Gauge('anomalizer_poll_time', 'poll-time (seconds)')
 
 def resource_monitoring():
     while True:
         gc.collect()
-        info = psutil.Process().memory_info()
-        GB = 1024*1024*1024
-        G_MEMORY_RSS.set(info.rss/GB)
-        G_MEMORY_VMS.set(info.vms/GB)
-        G_THREADS.set(threading.active_count())
         G_METRICS_AVAILABLE.set(METRICS_AVAILABLE)
         G_METRICS_PROCESSED.set(METRICS_PROCESSED)
         G_METRICS_DROPPED.set(METRICS_DROPPED)

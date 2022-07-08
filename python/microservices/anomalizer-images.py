@@ -149,7 +149,7 @@ def poll_images():
                 # 1. ask the anomalizer-engine for a list of metric ids.
                 # 2. grab the dataframe for each image-id
                 # 3. convert to an image and cache.
-                # 4. TODO: bulk queries.
+                # 4. bulk queries.
 
                 dataframes = requests.get(ANOMALIZER_ENGINE + '/dataframes')
                 assert dataframes.status_code == 200, 'unable to get engine/dataframes'
@@ -230,8 +230,8 @@ def poll_images():
                         dl2 = pd.read_json(x['l2'], orient='index').T
                         if len(dl1) and len(dl2):
                             # add lines to an existing scattergram (scat)
-                            line1 = go.Scatter(x=dl1[0], y=dl1[1], mode='lines', showlegend=False, line_color='blue')
-                            line2 = go.Scatter(x=dl2[0], y=dl2[1], mode='lines', showlegend=False)
+                            line1 = go.Scatter(x=dl1[0], y=dl1[1], mode='lines', showlegend=False, line={'color':'blue', 'width':2})
+                            line2 = go.Scatter(x=dl2[0], y=dl2[1], mode='lines', showlegend=False, line={'color':'orange', 'width':2})
 
                             fig.add_trace(line1)
                             fig.add_trace(line2)
@@ -259,16 +259,32 @@ def poll_images():
                         IMAGES[scat_id + '.' + str(i)] = {'type': type, 'plot': 'scatter', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric, 'cardinality': cardinality, 'tags': labels, 'stats': stats}
 
             except Exception as x:
-                traceback.print_exc()
-
+                #traceback.print_exc()
                 print('anomalizer-images: ' + repr(x))
                 ANOMALIZER_ENGINE_HEALTHY = False
             shared.G_POLL_METRICS.labels('images').set(time.time()-start)
             G_NUM_IMAGES.set(len(IMAGES))
         time.sleep(1)
 
+def cleanup():
+    while True:
+        try:
+            # reconcile image ids with engine ids, and remove any images that no longer exist.
+            ids = requests.get(ANOMALIZER_ENGINE + '/ids')
+            assert ids.status_code==200, 'unable to contact engine at ' + ANOMALIZER_ENGINE + '/ids'
+            for id in list(IMAGES.keys())[:]:
+                if not id in ids:
+                    print('anomalizer-images: cleaning image=' + id)
+                    del IMAGES[id]
+        except Exception as x:
+            print('anomalizer-images: ' + repr(x))
+        time.sleep(10)
+
 def startup():
     thread = threading.Thread(target=poll_images)
+    thread.start()
+
+    thread = threading.Thread(target=cleanup)
     thread.start()
 
 if __name__ == '__main__':

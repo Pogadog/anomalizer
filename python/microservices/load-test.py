@@ -85,13 +85,7 @@ gauges = [Gauge('anomalizer_load_gauge_' + str(i), 'poll-time (seconds)') for i 
 
 def load_test(index):
     endpoint = 'http://localhost:7070/server'
-    count = 0
     while True:
-        # generate a lot of synthetic gauges.
-        #print('load_test: ' + current_thread().name)
-        for gauge in gauges:
-            gauge.set(count)
-        count += 1
         if not current_thread() in THREADS:
             break
         with S_CLIENT_TOTAL.labels([endpoint]).time():
@@ -110,6 +104,14 @@ def up_down_load():
         if load == MAX_LOAD or load == 0:
             updown = -updown
         set_load(load)
+
+        # generate a lot of synthetic gauges.
+        #print('load_test: ' + current_thread().name)
+        count = 0
+        for gauge in gauges:
+            gauge.set(count)
+            count += 1
+
 
 threading.Thread(target=up_down_load).start()
 

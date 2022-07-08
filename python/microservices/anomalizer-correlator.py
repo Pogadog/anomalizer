@@ -78,8 +78,9 @@ def poll_dataframes():
                     dataframe = pd.read_json(df, orient='index').T
                     DATAFRAMES[_id] = dataframe
                     ID_MAP[_id] = id_map[_id]
-            except:
-                traceback.print_exc()
+            except Exception as x:
+                #traceback.print_exc()
+                print('anomalizer-correlator': + repr(x))
                 ANOMALIZER_ENGINE_HEALTHY = False
         time.sleep(1)
 
@@ -213,7 +214,7 @@ def correlate(id):
 
     except Exception as x:
         #traceback.print_exc()
-        print('correlate failed: ' + str(x))
+        print('anomalizer-correlator: correlate failed: ' + repr(x))
         return jsonify({'status': 'failed', 'exception': str(x)})
 
 @app.route('/metrics')

@@ -1,1 +1,47 @@
-../../docker/mini-prom.yaml
+scrape_configs:
+  #- job_name: 'anomalizer'
+  #  scrape_interval: 10s
+  #  static_configs:
+  #    - targets: ['localhost:8056']
+
+  - job_name: 'anomalizer-engine'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:8060']
+
+  - job_name: 'anomalizer-images-0'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:8061']
+
+  - job_name: 'anomalizer-images-1'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:18061']
+
+  - job_name: 'anomalizer-images-2'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:28061']
+
+  - job_name: 'anomalizer-images-3'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:38061']
+
+  - job_name: 'anomalizer-correlator'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:8062']
+
+  - job_name: 'load-test'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:7070']
+
+  - job_name: 'mini-prom'
+    scrape_interval: 10s
+    static_configs:
+      #- targets: ['localhost:8056', 'localhost:9090']
+      #- targets: ['anomalizer:8056', 'mini-prom:9091']
+      - targets: ['localhost:9090'] # self-analyze

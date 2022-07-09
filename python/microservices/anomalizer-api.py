@@ -7,7 +7,7 @@ import os, json
 from flask import Flask, jsonify, request, make_response, send_from_directory
 
 from apiflask import APIFlask, Schema
-from apiflask.fields import String, Boolean
+from apiflask.fields import String, Float
 from health import Health
 import shared
 
@@ -34,9 +34,14 @@ def _proxy(*args, **kwargs):
         ANOMALIZER_CORRELATOR_HEALTHY = Health.UP
     print('proxy: ' + request.url + '->' + args[0])
     try:
+        url = request.url.replace(request.host_url, args[0])
+        if 'proxy' in url:
+            url = url.replace('/proxy/engine', '')
+            url = url.replace('/proxy/images', '')
+            url = url.replace('/proxy/correlator', '')
         resp = requests.request(
             method=request.method,
-            url=request.url.replace(request.host_url, args[0]),
+            url=url,
             headers={key: value for (key, value) in request.headers if key != 'Host'},
             data=request.get_data(),
             cookies=request.cookies,
@@ -120,8 +125,18 @@ def correlate_id(id):
 def features():
     return _proxy(ANOMALIZER_IMAGES)
 
-@app.route('/filter', methods=['GET', 'POST'])
-def filter():
+class FilterInSchema(Schema):
+    query = String(required=True)
+    invert = String(required=True)
+    limit = Float(required=True)
+
+@app.post('/filter')
+@app.input(FilterInSchema)
+def filter_metrics_post(body):
+    return _proxy(ANOMALIZER_ENGINE)
+
+@app.get('/filter')
+def filter_metrics_get():
     return _proxy(ANOMALIZER_ENGINE)
 
 @app.route('/figure/<id>')
@@ -174,11 +189,20 @@ def serve(path):
     else:
         return send_from_directory(app.static_folder, 'index.html')
 
+@app.route('/proxy/<path:path>')
+def proxy(path):
+    print('proxy: ' + path)
+    if 'engine' in path:
+        return _proxy(ANOMALIZER_ENGINE)
+    if 'images' in path:
+        return _proxy(ANOMALIZER_IMAGES)
+    if 'correlator' in path:
+        return _proxy(ANOMALIZER_CORRELATOR)
 
 if __name__ == '__main__':
     try:
         print('anomalizer-api: PORT=' + str(PORT))
-        app.run(port=PORT, use_reloader=False)
+        app.run(host='0.0.0.0', port=PORT, use_reloader=False)
     except Exception as x:
         print('anomalizer-api error: ' + str(x))
         exit(1)

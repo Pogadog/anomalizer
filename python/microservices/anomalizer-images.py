@@ -17,10 +17,12 @@ print('anomalier-images: SHARDS=' + str(SHARDS) + ', SHARD=' + str(SHARD))
 
 from prometheus_client import Summary, Gauge
 
-S_TO_IMAGE = shared.S_TO_IMAGE
+S_TO_IMAGE = shared.S_TO_IMAGE.labels('images')
+G_TO_IMAGE = Gauge('anomalizer_to_image_time_gauge', 'gauge of to-image time')
 S_FIGURE = Summary('anomalizer_figures_seconds', 'time to compute figures')
 
 G_NUM_IMAGES = Gauge('anomalizer_num_images', 'number of images in memory')
+S_POLL_METRICS = shared.S_POLL_METRICS.labels('images')
 
 from flask import jsonify, request, make_response
 from apiflask import APIFlask, Schema
@@ -135,16 +137,20 @@ def metrics():
     response.mimetype = "text/plain"
     return response
 
-@S_TO_IMAGE.labels('images').time()
+@S_TO_IMAGE.time() #.labels('images')
 def to_image(fig, id=None):
-    return fig.to_image(format='jpg')
+    start = time.time()
+    try:
+        return fig.to_image(format='jpg')
+    finally:
+        G_TO_IMAGE.set(time.time()-start)
 
 def poll_images():
     global ANOMALIZER_ENGINE_HEALTHY
     while True:
         print('images: poll_images, SHARD=' + str(SHARD) + ', #IMAGES=' + str(len(IMAGES)))
         start = time.time()
-        with shared.S_POLL_METRICS.labels('images').time():
+        with S_POLL_METRICS.time():
             try:
                 # 1. ask the anomalizer-engine for a list of metric ids.
                 # 2. grab the dataframe for each image-id
@@ -205,7 +211,8 @@ def poll_images():
 
                     except Exception as x:
                         #traceback.print_exc()
-                        print('anomalizer-images: ' + repr(x))
+                        #print('anomalizer-images: ' + repr(x))
+                        pass
 
                 # scattergrams.
                 result = requests.get(ANOMALIZER_ENGINE + '/scattergrams')
@@ -272,7 +279,9 @@ def cleanup():
             # reconcile image ids with engine ids, and remove any images that no longer exist.
             ids = requests.get(ANOMALIZER_ENGINE + '/ids')
             assert ids.status_code==200, 'unable to contact engine at ' + ANOMALIZER_ENGINE + '/ids'
+            ids = ids.json()
             for id in list(IMAGES.keys())[:]:
+                id = id.split('.')[0]
                 if not id in ids:
                     print('anomalizer-images: cleaning image=' + id)
                     del IMAGES[id]

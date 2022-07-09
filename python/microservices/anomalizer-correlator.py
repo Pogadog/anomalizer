@@ -30,21 +30,25 @@ G_CORRELATE = Gauge('anomalizer_correlation_time_gauge', 'time to compute (gauge
 S_CORRELATE_ID = S_CORRELATE.labels('id')
 S_CORRELATE_ALL = S_CORRELATE.labels('all')
 
-S_TO_IMAGE = shared.S_TO_IMAGE
+S_TO_IMAGE = shared.S_TO_IMAGE.labels('correlator')
+S_POLL_METRICS = shared.S_POLL_METRICS.labels('correlator')
 
-@S_TO_IMAGE.labels('correlator').time()
+@S_TO_IMAGE.time() #.labels('correlator')
 def to_image(fig, id=None):
     return fig.to_image(format='jpg')
 
 @app.route('/correlate/all')
 @S_CORRELATE_ALL.time()
 def correlate_all():
-    return correlate('all')
+    negative = request.args.get('negative', 'false')=='true'
+    all = correlate('all', negative)
+    return jsonify(all)
 
 @app.route('/correlate/<id>')
 @S_CORRELATE_ID.time()
 def correlate_id(id):
-    return correlate(id)
+    negative = request.args.get('negative', 'false')=='true'
+    return jsonify(correlate(id, negative))
 
 DATAFRAMES = {}
 ID_MAP = {}
@@ -65,7 +69,7 @@ def health():
 def poll_dataframes():
     global ANOMALIZER_ENGINE_HEALTHY
     while True:
-        with shared.S_POLL_METRICS.labels('correlator').time():
+        with S_POLL_METRICS.time():
             try:
                 result = requests.get(ANOMALIZER_ENGINE + '/dataframes')
                 assert result.status_code == 200, 'unable to call engine/dataframes'
@@ -80,23 +84,33 @@ def poll_dataframes():
                     ID_MAP[_id] = id_map[_id]
             except Exception as x:
                 #traceback.print_exc()
-                print('anomalizer-correlator': + repr(x))
+                print('anomalizer-correlator: ' + repr(x))
                 ANOMALIZER_ENGINE_HEALTHY = False
         time.sleep(1)
 
 def clear_cache():
     while True:
         correlate.cache_clear()
-        time.sleep(60*2)
+        time.sleep(30)
+
+
+def correlate_all_poller():
+    print('correlate_all_poller')
+    while True:
+        try:
+            all = correlate('all', False)
+            #print('anomalizer-correlator all: ' + str([(c['metrics']) for c in all.get('correlates', [])]))
+        except:
+            traceback.print_exc()
+        time.sleep(1)
 
 
 @functools.lru_cache
-def correlate(id):
+def correlate(id, negative):
     #if id=='all':
     #    print('correlate/all is disabled for reasons of scale')
     #    return jsonify({'status': 'failed', 'exception': 'correlate/all is disabled for performance reasons'})
 
-    negative = request.args.get('negative', 'false')=='true'
     neg = 1 if negative else -1
     data = pd.DataFrame()
 
@@ -107,9 +121,9 @@ def correlate(id):
     try:
 
         # find all correlations. pearson correlation pairwise of all dataframes that are currently active.
-        print('correlator: #DATAFRAMES=' + str(len(DATAFRAMES)))
+        #print('correlator: #DATAFRAMES=' + str(len(DATAFRAMES)))
         # collect all data-frames expanded as columns and tagged as individual metrics.
-        print('correlator: data')
+        #print('correlator: data')
         for _id, df in DATAFRAMES.copy().items():
             dfc = df.copy()
             # don't bother to correlate things that aren't moving around.
@@ -131,7 +145,7 @@ def correlate(id):
             else:
                 data = pd.concat([data, dfc], axis=1)
         data = data.fillna(0)
-        print('correlator: starting correlation')
+        #print('correlator: starting correlation')
         if id=='all':
             # correleate everything against everything
             #print('correlate/all')
@@ -201,7 +215,7 @@ def correlate(id):
                     img_b64 = "data:image/jpg;base64," + encoding
                     images += [img_b64]
                 meta = [{'metric': metric.split('.')[0], 'id': metric.split('.')[1], 'tag': metric.split('.')[2]} for metric in metrics]
-                zipped = list(zip(meta, values, images))
+                zipped = list(zip(meta, values))
                 zipped = list(filter(lambda z: abs(z[1]) > 0.3, zipped))
                 ordered += [{'fit': fit, 'metrics': zipped}]
             else:
@@ -209,13 +223,13 @@ def correlate(id):
         # most time is spent generating and serializing the b64 images.
         elapsed = time.time()-start
         ordered = sorted(ordered, key=lambda x: -x['fit'])
-        print('correlator: correlation finished')
-        return jsonify({'status': 'success', 'elapsed': elapsed, 'correlates': ordered, 'metrics': len(DATAFRAMES), 'results': len(ordered)})
+        #print('correlator: correlation finished')
+        return {'status': 'success', 'elapsed': elapsed, 'correlates': ordered, 'metrics': len(DATAFRAMES), 'results': len(ordered)}
 
     except Exception as x:
-        #traceback.print_exc()
+        traceback.print_exc()
         print('anomalizer-correlator: correlate failed: ' + repr(x))
-        return jsonify({'status': 'failed', 'exception': str(x)})
+        return {'status': 'failed', 'exception': str(x)}
 
 @app.route('/metrics')
 def metrics():
@@ -232,6 +246,9 @@ def startup():
     thread.start()
 
     thread = threading.Thread(target=clear_cache)
+    thread.start()
+
+    thread = threading.Thread(target=correlate_all_poller)
     thread.start()
 
 if __name__ == '__main__':

@@ -7,7 +7,8 @@ from copy import deepcopy
 
 from collections import defaultdict
 from flask import jsonify, request, make_response
-from apiflask import APIFlask
+from apiflask import APIFlask, Schema
+from apiflask.fields import Integer, String, Float
 from prometheus_client import Histogram, Gauge, generate_latest
 
 from health import Health
@@ -18,6 +19,7 @@ import warnings
 warnings.simplefilter('ignore', np.RankWarning)
 
 H_PROMETHEUS_CALL = Histogram('anomalizer_prometheus_request_latency', 'request latency for prometheus metrics')
+S_POLL_METRICS = shared.S_POLL_METRICS.labels('engine')
 
 import logging
 logging.getLogger("werkzeug").disabled = True
@@ -32,7 +34,7 @@ INVERT = False
 INCREASE_THRESH = 0.5
 DECREASE_THRESH = -0.25
 
-LIMIT = shared.LIMITS[-1]
+LIMIT = shared.LIMITS[-2]
 FILTER = ''
 INVERT = False
 
@@ -162,14 +164,13 @@ def server_metrics():
     return jsonify(sm)
 
 @app.route('/filter', methods=['GET', 'POST'])
-# TODO: enable once anomalizer UI is updated
-#@app.input(FilterSchema)
 def filter_metrics():
     body = request.json
     if body:
         global FILTER, INVERT, LIMIT
         FILTER = body.get('query', '')
         INVERT = body.get('invert', False)
+        # TODO: reflect back to UI, until then, fix at [-1].
         LIMIT = float(body.get('limit', LIMIT))
     result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT}
     print(result)
@@ -361,6 +362,13 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
             # try _sum and _count with rate, since python does not do quantiles properly.
             labels, values, query = get_prometheus(metric + '_sum', True, type, STEP)
             labels_count, values_count, _ = get_prometheus(metric + '_count', True, type, STEP)
+
+            average = pd.DataFrame(values)/pd.DataFrame(values_count)
+            average = average.fillna(0) # [5m]
+            values = average.values.tolist()
+
+            #print('anomalizer-engine: average rate: ' + type + '/' + metric + ': \n' + str(average))
+
             if not values:
                 return None, None, None, None
 
@@ -475,7 +483,7 @@ METRICS_AVAILABLE = 0
 METRICS_DROPPED = 0
 METRICS_TOTAL_TS = 0
 
-@shared.S_POLL_METRICS.labels('engine').time()
+@S_POLL_METRICS.time() #.labels('engine')
 def poll_metrics():
     global METRICS_DROPPED, METRICS_PROCESSED, METRICS_AVAILABLE, METRICS_TOTAL_TS
     METRICS_AVAILABLE = METRICS_PROCESSED-METRICS_DROPPED

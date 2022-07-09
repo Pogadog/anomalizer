@@ -1,4 +1,4 @@
-import psutil
+import psutil, os
 from prometheus_client import Summary, Histogram, Counter, Gauge, generate_latest
 import uuid
 from urllib.parse import urlparse
@@ -13,20 +13,22 @@ G_POLL_METRICS = Gauge('anomalizer_poll_metrics_gauge', 'time to poll metrics', 
 
 SHARDS = 2  
 
-import sentry_sdk
-from sentry_sdk.integrations.flask import FlaskIntegration
-sentry_sdk.init(
-    dsn="https://1c1774e5abf343b7a38b44ee99bfb3ff@o1309692.ingest.sentry.io/6556078",
+SENTRY_KEY = os.environ.get('SENTRY_KEY')
 
-    #integrations=[
-    #    FlaskIntegration(),
-    #],
+if SENTRY_KEY:
+    import sentry_sdk
+    from sentry_sdk.integrations.flask import FlaskIntegration
+    sentry_sdk.init(
+        dsn=SENTRY_KEY,
+        #integrations=[
+        #    FlaskIntegration(),
+        #],
 
-    # Set traces_sample_rate to 1.0 to capture 100%
-    # of transactions for performance monitoring.
-    # We recommend adjusting this value in production.
-    traces_sample_rate=1.0
-)
+        # Set traces_sample_rate to 1.0 to capture 100%
+        # of transactions for performance monitoring.
+        # We recommend adjusting this value in production.
+        traces_sample_rate=1.0
+    )
 
 def shard(id):
     uid = int(uuid.UUID(id))

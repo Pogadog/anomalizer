@@ -13,7 +13,9 @@ from shared import C_EXCEPTIONS_HANDLED
 # Are we sharded?
 SHARD = int(os.environ.get('SHARD', '0'))
 SHARDS = int(os.environ.get('SHARDS', '0'))
-print('anomalier-images: SHARDS=' + str(SHARDS) + ', SHARD=' + str(SHARD))
+print('SHARDS=' + str(SHARDS) + ', SHARD=' + str(SHARD))
+
+shared.hook_logging('images-' + str(SHARD))
 
 from prometheus_client import Summary, Gauge
 
@@ -148,7 +150,7 @@ def to_image(fig, id=None):
 def poll_images():
     global ANOMALIZER_ENGINE_HEALTHY
     while True:
-        print('images: poll_images, SHARD=' + str(SHARD) + ', #IMAGES=' + str(len(IMAGES)))
+        print('poll_images, SHARD=' + str(SHARD) + ', #IMAGES=' + str(len(IMAGES)))
         start = time.time()
         with S_POLL_METRICS.time():
             try:
@@ -173,7 +175,7 @@ def poll_images():
                     # sharding algorithm.
                     shard = shared.shard(id)
                     if shard!=SHARD:
-                        #print('images: ignoring ' + id + ' because SHARD=' + str(SHARD))
+                        #print('ignoring ' + id + ' because SHARD=' + str(SHARD))
                         continue
                     try:
                         dfp = df[1]
@@ -188,7 +190,7 @@ def poll_images():
 
                         metric = id_map[id]
 
-                        #print('anomalizer-images: rendering metric: ' + metric)
+                        #print('rendering metric: ' + metric)
                         type = metric_types[id]
 
                         fig = px.line(dfp, title=metric, color_discrete_sequence=px.colors.qualitative.Bold)
@@ -211,7 +213,7 @@ def poll_images():
 
                     except Exception as x:
                         #traceback.print_exc()
-                        #print('anomalizer-images: ' + repr(x))
+                        #print(repr(x))
                         pass
 
                 # scattergrams.
@@ -247,7 +249,7 @@ def poll_images():
                         stats = {}
                         FIGURES[scat_id] += [(fig, features, stats)]
 
-                        #print('anomalizer-images: scattergram=' + metric + '.' + str(i))
+                        #print('scattergram=' + metric + '.' + str(i))
 
                         img_bytes = to_image(fig)
                         encoding = b64encode(img_bytes).decode()
@@ -267,7 +269,7 @@ def poll_images():
 
             except Exception as x:
                 #traceback.print_exc()
-                print('anomalizer-images: ' + repr(x))
+                print(repr(x))
                 ANOMALIZER_ENGINE_HEALTHY = False
             shared.G_POLL_METRICS.labels('images').set(time.time()-start)
             G_NUM_IMAGES.set(len(IMAGES))
@@ -283,10 +285,10 @@ def cleanup():
             for id in list(IMAGES.keys())[:]:
                 id = id.split('.')[0]
                 if not id in ids:
-                    print('anomalizer-images: cleaning image=' + id)
+                    #print('cleaning image=' + id)
                     del IMAGES[id]
         except Exception as x:
-            print('anomalizer-images: ' + repr(x))
+            print(repr(x))
         time.sleep(10)
 
 def startup():
@@ -301,8 +303,8 @@ if __name__ == '__main__':
     try:
         startup()
 
-        print('anomalizer-images: PORT=' + str(PORT))
+        print('PORT=' + str(PORT))
         app.run(port=PORT, use_reloader=False)
     except Exception as x:
-        print('anomalizer-images error: ' + str(x))
+        print('error: ' + str(x))
         exit(1)

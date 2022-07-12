@@ -32,7 +32,7 @@ scrape_configs:
   - job_name: 'anomalizer-correlator'
     scrape_interval: 10s
     static_configs:
-      - targets: ['localhost:8062']
+      - targets: ['localhost:8062', 'localhost:18062', 'localhost:28062']
 
   - job_name: 'load-test'
     scrape_interval: 10s

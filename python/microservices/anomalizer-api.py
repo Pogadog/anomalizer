@@ -7,9 +7,11 @@ import os, json
 from flask import Flask, jsonify, request, make_response, send_from_directory
 
 from apiflask import APIFlask, Schema
-from apiflask.fields import String, Float
+from apiflask.fields import String, Float, Boolean
 from health import Health
 import shared
+
+shared.hook_logging('api')
 
 from flask import request, Response
 import requests
@@ -103,7 +105,7 @@ def images():
         image = _proxy(endpoint)
         if image:
             headers = image.headers
-            print('images: shard=' + str(i) + ', #IMAGES=' + str(len(image.json)))
+            print('shard=' + str(i) + ', #IMAGES=' + str(len(image.json)))
             images.update(image.json)
     # use the headers from the image response to make a valid response here.
     response = Response(bytes(json.dumps(images), 'utf-8'), 200, headers)
@@ -121,14 +123,31 @@ def server_metrics():
 def correlate_id(id):
     return _proxy(ANOMALIZER_CORRELATOR)
 
+@app.route('/correlate/all')
+def correlate_all():
+    # scatter-gather to all the sharding correlators
+    correlates = {}
+    headers = {}
+    for i in range(0, shared.N_SHARDS):
+        # TODO: some kind of discovery here, rather than hard-wired ports
+        endpoint = shared.shard_endpoint(ANOMALIZER_CORRELATOR, i)
+        correlate = _proxy(endpoint)
+        if correlate:
+            headers = correlate.headers
+            print('shard=' + str(i) + ', #CORRELATES=' + str(len(correlate.json)))
+            correlates.update(correlate.json)
+    # use the headers from the image response to make a valid response here.
+    response = Response(bytes(json.dumps(correlates), 'utf-8'), 200, headers)
+    return response
+
 @app.route('/features')
 def features():
     return _proxy(ANOMALIZER_IMAGES)
 
 class FilterInSchema(Schema):
-    query = String(required=True)
-    invert = String(required=True)
-    limit = Float(required=True)
+    query = String(required=False)
+    invert = Boolean(required=False)
+    limit = Float(required=False)
 
 @app.post('/filter')
 @app.input(FilterInSchema)
@@ -201,8 +220,8 @@ def proxy(path):
 
 if __name__ == '__main__':
     try:
-        print('anomalizer-api: PORT=' + str(PORT))
+        print('PORT=' + str(PORT))
         app.run(host='0.0.0.0', port=PORT, use_reloader=False)
     except Exception as x:
-        print('anomalizer-api error: ' + str(x))
+        print('error: ' + str(x))
         exit(1)

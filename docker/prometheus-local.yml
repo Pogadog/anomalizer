@@ -40,12 +40,12 @@ scrape_configs:
   - job_name: 'anomalizer-images'
     scrape_interval: 10s
     static_configs:
-      - targets: ['host.docker.internal:8061']
+      - targets: ['host.docker.internal:8061', 'host.docker.internal:18061', 'host.docker.internal:28061']
 
   - job_name: 'anomalizer-correlator'
     scrape_interval: 10s
     static_configs:
-      - targets: ['host.docker.internal:8062']
+      - targets: ['host.docker.internal:8062', 'host.docker.internal:18062', 'host.docker.internal:28062']
 
   - job_name: 'docker'
     scrape_interval: 10s

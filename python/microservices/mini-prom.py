@@ -7,6 +7,9 @@
 #   /api/v1/query_range?query=<metric>>&start=<start>>&end=<end>&step=<step> -- time-series for metrics.
 import traceback
 import pickle
+import shared
+
+shared.hook_logging('mini-prom')
 
 from flask import Flask, jsonify, request, make_response
 from apiflask import APIFlask
@@ -159,7 +162,7 @@ def miniprom():
             for mtarget in targets:
                 for target in mtarget['targets']:
                     try:
-                        print('mini-prom: scraping: http://' + target + '/metrics')
+                        print('scraping: http://' + target + '/metrics')
                         text = requests.get('http://' + target + '/metrics').text
                         _time = time.time()
                         for family in text_string_to_metric_families(text):
@@ -179,7 +182,7 @@ def miniprom():
                                 METRICS_BY_NAME[CURRENT]['metrics'][name][_labels] += [[_time, value]]
                                 # limit this to 180 samples (simulate 3hrs@1s)
                                 if len(METRICS_BY_NAME[CURRENT]['metrics'][name][_labels]) >= 180:
-                                    #print('mini-prom: pruning data ' + name + '. ' + str(labels))
+                                    #print('pruning data ' + name + '. ' + str(labels))
                                     METRICS_BY_NAME[CURRENT]['metrics'][name][_labels].pop(0)
                                 _list = ast.literal_eval(_labels)
                                 _tags = dict(item.split('=') for item in _list)
@@ -188,7 +191,7 @@ def miniprom():
                         #    print(name + ': ' + str(METRICS_BY_NAME[CURRENT]['metrics'][name]))
                     except Exception as x:
                         # traceback.print_exc()
-                        print('mini-prom: scrape exception: ' + str(x))
+                        print('scrape exception: ' + str(x))
             time.sleep(scrape_interval)
 
     import threading, pickle
@@ -209,7 +212,7 @@ def miniprom():
             read_from_cloud('mini-prom.pickle')
         except Exception as x:
             #traceback.print_exc()
-            print('mini-prom: unable to read from mini-prom.pickle, state will be reset: ' + repr(x))
+            print('unable to read from mini-prom.pickle, state will be reset: ' + repr(x))
 
         try:
             file = open('mini-prom.pickle', 'rb')
@@ -217,7 +220,7 @@ def miniprom():
             with file:
                 METRICS_BY_NAME, METRICS_FAMILY = pickle.load(file)
         except Exception as x:
-            print('mini-prom: unable to load local mini-prom.pickle: ' + repr(x))
+            print('unable to load local mini-prom.pickle: ' + repr(x))
 
     def shutdown(signum, frame):
         # passivate to the cloud bucket.
@@ -225,7 +228,7 @@ def miniprom():
         print('passivating to mini-prom.pickle')
         with file:
             pickle.dump([METRICS_BY_NAME, METRICS_FAMILY], file=file)
-        print('mini-prom: pickled mini-prom.pickle to disk')
+        print('pickled mini-prom.pickle to disk')
         write_to_cloud('mini-prom.pickle')
         exit(0)
 
@@ -234,7 +237,7 @@ def miniprom():
 
     poller()
 
-    print('mini-prom port=' + str(PORT))
+    print('port=' + str(PORT))
     server.run(host='0.0.0.0', port=PORT)
 
 if __name__=='__main__':

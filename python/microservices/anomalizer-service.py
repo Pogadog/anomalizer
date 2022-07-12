@@ -2,6 +2,8 @@
 # TODO: make it detect changes in the source and relaunch.
 
 import subprocess, time, os
+import traceback
+
 import shared
 processes = []
 
@@ -22,7 +24,8 @@ try:
     for i in range(0, shared.SHARDS):
         processes.append(subprocess.Popen(['python', PATH + 'anomalizer-images.py'], close_fds=False, env=ENV.update({'SHARD': str(i)})))
     time.sleep(2)
-    processes.append(subprocess.Popen(['python', PATH + 'anomalizer-correlator.py'], close_fds=False))
+    for i in range(0, shared.N_SHARDS):
+        processes.append(subprocess.Popen(['python', PATH + 'anomalizer-correlator.py'], close_fds=False, env=ENV.update({'C_SHARD': str(i)})))
     time.sleep(2)
     processes.append(subprocess.Popen(['python', PATH + 'anomalizer-api.py'], close_fds=False))
 
@@ -31,7 +34,8 @@ try:
     for process in processes:
         process.wait()
 
-except:
+except Exception as x:
+    traceback.print_exc()
     for process in processes:
         print('anomalizer is killing: ' + str(process))
         process.kill()

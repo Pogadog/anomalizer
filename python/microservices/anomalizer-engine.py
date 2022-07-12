@@ -18,6 +18,8 @@ from shared import C_EXCEPTIONS_HANDLED
 import warnings
 warnings.simplefilter('ignore', np.RankWarning)
 
+shared.hook_logging('engine')
+
 H_PROMETHEUS_CALL = Histogram('anomalizer_prometheus_request_latency', 'request latency for prometheus metrics')
 S_POLL_METRICS = shared.S_POLL_METRICS.labels('engine')
 
@@ -185,7 +187,7 @@ def cleanup(id, metric):
         traceback.print_exc()
 
 def poller():
-    print('engine: poller starting...')
+    print('poller starting...')
     while True:
         refresh_metrics()
         start = time.time()
@@ -210,18 +212,18 @@ def _metadata():
         #print('METRIC_TYPES=' + str(METRIC_TYPES))
         return {'status': 'success', 'data': meta}
     except Exception as x:
-        print('engine: unable to contact prometheus at: ' + META)
+        print('unable to contact prometheus at: ' + META)
         return {'status': 'failure'}
 
 def refresh_metrics():
     try:
         global METRICS
         _metadata()
-        print('engine: fetching ' + META)
+        print('fetching ' + META)
         result = requests.get(META)
         _json = result.json()
         METRICS = _json['data']
-        print('engine: #METRICS=' + str(len(METRICS)) + ', #DATAFRAMES=' + str(len(DATAFRAMES)))
+        print('#METRICS=' + str(len(METRICS)) + ', #DATAFRAMES=' + str(len(DATAFRAMES)))
         # synthetic metrics for histogram and summary
         synth = {}
         for k, metric in METRICS.items():
@@ -232,13 +234,13 @@ def refresh_metrics():
         METRICS.update(synth)
         #print('METRICS=' + str(METRICS))
     except Exception as x:
-        print('engine: error refreshing metrics: ' + str(x))
+        print('error refreshing metrics: ' + str(x))
         time.sleep(5)
 
 
 def get_prometheus(metric, _rate, type, step):
     global PROMETHEUS_HEALTHY
-    #print('engine: get_prometheus: ' + metric)
+    #print('get_prometheus: ' + metric)
     try:
         labels = []
         values = []
@@ -323,10 +325,6 @@ def hockey_stick(metric, dxi, dyi, N=5):
     # return the normalized second and first grafndients
     return p1[1]*xr/yr, p2[1]*xr/yr, l1, l2
 
-def no_nan(dict):
-    dict = {k: 0 if math.isnan(v) else v for k, v in dict.items()}
-    return dict
-
 def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
     global INTERNAL_FAILURE
     try:
@@ -367,7 +365,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
             average = average.fillna(0) # [5m]
             values = average.values.tolist()
 
-            #print('anomalizer-engine: average rate: ' + type + '/' + metric + ': \n' + str(average))
+            #print('average rate: ' + type + '/' + metric + ': \n' + str(average))
 
             if not values:
                 return None, None, None, None
@@ -434,7 +432,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                             features.update({'spike': spike})
 
                         stats = {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': _mean, 'std': std, 'spike': spike}
-                        stats = no_nan(stats)
+                        stats = shared.no_nan(stats)
 
                         status = STATUS.get(id, Status.NORMAL.value)
                         SCATTERGRAMS[scat_id] += [{'xy': dxy, 'stats': stats, 'labels': labels, 'cardinality': cardinality, 'metric': metric, 'l1': l1, 'l2': l2, 'features': features, 'status': status}]
@@ -503,6 +501,7 @@ def poll_metrics():
                 maxlen = max(map(len, values))
                 values = [[0]*(maxlen - len(row))+row for row in values]
                 dfp = pd.DataFrame(columns= np.arange(len(labels)).T, data=np.array(values).T)
+                dfp = dfp.replace([np.inf, -np.inf, np.nan], 0)
                 if labels:
                     METRICS_TOTAL_TS += len(labels)
                     # forward/backward map between metrics and their ids.
@@ -541,11 +540,11 @@ def poll_metrics():
 
                     if not dfp is None:
                         std = dfp.std(ddof=0).abs().sum()
-                        mean = dfp.mean().sum()
+                        _mean = dfp.mean().sum()
                         _max = dfp.max().max()
                         _min = dfp.min().min()
-                        rstd = std/mean if mean>std else std
-                        spike = _max/mean if mean>0 else _max
+                        rstd = std/_mean if _mean>std else 0
+                        spike = _max/_mean if _mean>0 else _max
                         if spike > 10:
                             features.update({'spike': spike})
 
@@ -564,18 +563,19 @@ def poll_metrics():
                         DATAFRAMES[id] = dfp
 
                         stats = {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': mean, 'std': std, 'spike': spike, 'snr': snr}
-                        stats = no_nan(stats)
+                        stats = shared.no_nan(stats)
 
                         STATS[id] = stats
                         STATUS[id] = status.value
 
             else:
-                #print('anomalizer-engine: dropping ' + metric)
+                #print('dropping ' + metric)
                 METRICS_DROPPED += 1
                 cleanup(id, metric)
 
         except Exception as x:
             traceback.print_exc()
+
             cleanup(id, metric)
             C_EXCEPTIONS_HANDLED.labels(x.__class__.__name__).inc()
 
@@ -612,8 +612,8 @@ if __name__ == '__main__':
     try:
         startup()
 
-        print('anomalizer-engine: PORT=' + str(PORT))
+        print('PORT=' + str(PORT))
         app.run(port=PORT, use_reloader=False   )
     except Exception as x:
-        print('anomalizer-engine error: ' + str(x))
+        print('error: ' + str(x))
         exit(1)

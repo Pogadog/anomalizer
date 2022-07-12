@@ -1,7 +1,6 @@
 version: "2"
 services:
-
-  anomalizer-prometheus:
+  prometheus:
     image: prom/prometheus:latest
     volumes:
       - ./prometheus-local.yml:/etc/prometheus/prometheus.yml
@@ -9,4 +8,25 @@ services:
     ports:
       - "9091:9090" # expose this prometheus on 9091 host port
 
+  loki:
+    image: grafana/loki:2.6.0
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - loki
 
+  promtail:
+    image: grafana/promtail:2.6.0
+    volumes:
+      - /var/log:/var/log
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - loki
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    networks:
+      - loki

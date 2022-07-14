@@ -1,6 +1,7 @@
 import math
+import socket
 
-import psutil, os
+import psutil, os, sys, json
 from prometheus_client import Summary, Histogram, Counter, Gauge, generate_latest
 import uuid
 from urllib.parse import urlparse
@@ -13,9 +14,10 @@ S_TO_IMAGE = Summary('anomalizer_to_image_time', 'time to convert images', ['ser
 S_POLL_METRICS = Summary('anomalizer_poll_metrics', 'time to poll metrics', ['service'])
 G_POLL_METRICS = Gauge('anomalizer_poll_metrics_gauge', 'time to poll metrics', ['service'])
 
-SHARDS = 2
-
 SENTRY_KEY = os.environ.get('SENTRY_KEY')
+
+I_SHARDS = int(os.environ.get('I_SHARDS', '1'))
+I_SHARD = int(os.environ.get('I_SHARD', '0'))
 
 if SENTRY_KEY:
     import sentry_sdk
@@ -32,15 +34,18 @@ if SENTRY_KEY:
         traces_sample_rate=1.0
     )
 
-def shard(id):
+def shard(id, shards):
     uid = int(uuid.UUID(id))
-    return uid%SHARDS
+    return uid%shards
 
 def shard_endpoint(end, shard):
+    return end.replace('{SHARD}', str(shard))
+    '''
     url = urlparse(end)
     port = url.port
     port += shard*10000
     return url.scheme + '://' + url.hostname + ':' + str(port) + '/'
+    '''
 
 G_MEMORY_RSS = Gauge('anomalizer_memory_rss', 'resident memory consumption of program', unit='GB')
 G_MEMORY_VMS = Gauge('anomalizer_memory_vms', 'virtual memory consumption of program', unit='GB')
@@ -62,8 +67,9 @@ def resource_monitoring():
 
 threading.Thread(target=resource_monitoring).start()
 
-C_SHARDS = int(os.environ.get('C_SHARDS', '3'))
+C_SHARDS = int(os.environ.get('C_SHARDS', '1'))
 C_SHARD = int(os.environ.get('C_SHARD', '0'))
+
 N_SHARDS = max(1, C_SHARDS*(C_SHARDS-1)//2)
 
 ARRAY = []
@@ -118,9 +124,59 @@ class Timer:
         self.gauge.labels(*labels).set(elapsed)
         self.gauge_per.labels(*labels).set(elapsed/self._per)
 
+# loki-logging
+import logging
+import logging_loki
+
+LOKI = os.environ.get('LOKI', 'http://localhost:3100')
+print(f'LOKI={LOKI}')
+
+STDERR = sys.stderr # before override below.
+
+import ccloud_lib
+from confluent_kafka import Producer, KafkaError
+
+class ConfluentHandler(logging.Handler):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.topic = kwargs['topic']
+        config = {
+            'bootstrap.servers': kwargs['bootstrap_servers'],
+            'security.protocol': 'SASL_SSL',
+            'sasl.mechanisms': 'PLAIN',
+            'sasl.username': kwargs['sasl_username'],
+            'sasl.password': kwargs['sasl_password'],
+            'session.timeout.ms': '45000',
+            'group.id': 'anomalizer-producer-group-1',
+        }
+        ccloud_lib.create_topic(config, self.topic)
+        self    .producer = Producer(config)
+
+    def emit(self, record):
+        self.producer.produce(self.topic, key=str(record.name), value=json.dumps({'name': record.name, 'filename': record.filename, 'levelname': record.levelname,
+            'lineno': record.lineno, 'message': record.message, 'module': record.module, 'threadName': record.threadName}))
+
+class SafeLokiHandler(logging_loki.LokiHandler):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+    def handleError(self, record):
+        # drop loki/network errors on the floor.
+        # super().handleError(record)
+        pass
+
+handler = SafeLokiHandler(
+    url=f'{LOKI}/loki/api/v1/push',
+    tags={'application': 'anomalizer', 'hostname': socket.gethostname()},
+    auth=('username', 'password'),
+    version='1',
+)
+
+
+logger = logging.getLogger('loki-logger')
+
 # hook stdout/stderr into logging with a bridge class.
 # https://stackoverflow.com/questions/19425736/how-to-redirect-stdout-and-stderr-to-logger-in-python
-import sys, logging
+import logging
 class LoggerWriter:
     def __init__(self, level):
         # self.level is really like using log.debug(message)
@@ -132,7 +188,7 @@ class LoggerWriter:
         # printed to the logger
         if type(message)==bytes:
             message = message.decode('utf-8')
-        if len(message) and message != '\n':
+        if (not 'shared.LoggerWriter' in message) and len(message) and message != '\n':
             self.level(message)
 
     def flush(self):
@@ -142,11 +198,24 @@ class LoggerWriter:
         # to work properly for me.
         self.level('')
 
+if os.environ.get('BOOTSTRAP_SERVERS'):
+    confluent = ConfluentHandler(bootstrap_servers=os.environ.get('BOOTSTRAP_SERVERS'),
+                                 topic='loki-anomalizer',
+                                 sasl_username=os.environ.get('SASL_USERNAME'),
+                                 sasl_password=os.environ.get('SASL_PASSWORD'))
+
 # Hook process stdout & stderr to a logger, based on service name.
 def hook_logging(name):
     logging.basicConfig(level=logging.INFO)
     log = logging.getLogger('anomalizer-' + name)
+    # add loki handler.
+    log.addHandler(handler)
+    # only add confluent handler if bootstrap servers are defined.
+    if os.environ.get('BOOTSTRAP_SERVERS'):
+        log.addHandler(confluent)
     sys.stdout = LoggerWriter(log.info)
-    print('sys.stdout')
+    print(name + ': sys.stdout')
     sys.stderr = LoggerWriter(log.error)
-    print('sys.stderr', file=sys.stderr)
+    print(name + ': sys.stderr', file=sys.stderr)
+
+# end

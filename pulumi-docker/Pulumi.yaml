@@ -1,0 +1,6 @@
+name: anomalizer-microservices
+runtime:
+  name: python
+  options:
+    virtualenv: venv
+description: Anomalizer deployed on docker using pulumi

@@ -1,4 +1,4 @@
-import os, time, threading, traceback, gc, psutil, requests, uuid, json, re, ast, enum
+import os, sys, time, threading, traceback, gc, psutil, requests, uuid, json, re, ast, enum
 import pandas as pd
 import numpy as np
 from base64 import b64encode
@@ -10,9 +10,10 @@ from health import Health
 import shared
 from shared import C_EXCEPTIONS_HANDLED
 
+SHARDS = shared.I_SHARDS
+SHARD = shared.I_SHARD
+
 # Are we sharded?
-SHARD = int(os.environ.get('SHARD', '0'))
-SHARDS = int(os.environ.get('SHARDS', '0'))
 print('SHARDS=' + str(SHARDS) + ', SHARD=' + str(SHARD))
 
 shared.hook_logging('images-' + str(SHARD))
@@ -150,7 +151,7 @@ def to_image(fig, id=None):
 def poll_images():
     global ANOMALIZER_ENGINE_HEALTHY
     while True:
-        print('poll_images, SHARD=' + str(SHARD) + ', #IMAGES=' + str(len(IMAGES)))
+        print('poll_images, I_SHARD=' + str(SHARD) + ', #IMAGES=' + str(len(IMAGES)))
         start = time.time()
         with S_POLL_METRICS.time():
             try:
@@ -173,9 +174,9 @@ def poll_images():
                 for df in dataframes['dataframes']:
                     id = df[0]
                     # sharding algorithm.
-                    shard = shared.shard(id)
+                    shard = shared.shard(id, SHARDS)
                     if shard!=SHARD:
-                        #print('ignoring ' + id + ' because SHARD=' + str(SHARD))
+                        #print('ignoring ' + id + ' because I_SHARD=' + str(shared.SHARD))
                         continue
                     try:
                         dfp = df[1]
@@ -212,8 +213,8 @@ def poll_images():
 
 
                     except Exception as x:
-                        #traceback.print_exc()
-                        #print(repr(x))
+                        # traceback.print_exc()
+                        print('error polling image: ' + repr(x))
                         pass
 
                 # scattergrams.
@@ -269,7 +270,7 @@ def poll_images():
 
             except Exception as x:
                 #traceback.print_exc()
-                print(repr(x))
+                print(repr(x), sys.stderr)
                 ANOMALIZER_ENGINE_HEALTHY = False
             shared.G_POLL_METRICS.labels('images').set(time.time()-start)
             G_NUM_IMAGES.set(len(IMAGES))
@@ -288,7 +289,7 @@ def cleanup():
                     #print('cleaning image=' + id)
                     del IMAGES[id]
         except Exception as x:
-            print(repr(x))
+            print(repr(x), sys.stderr)
         time.sleep(10)
 
 def startup():
@@ -304,7 +305,7 @@ if __name__ == '__main__':
         startup()
 
         print('PORT=' + str(PORT))
-        app.run(port=PORT, use_reloader=False)
+        app.run(host='0.0.0.0', port=PORT, use_reloader=False)
     except Exception as x:
         print('error: ' + str(x))
         exit(1)

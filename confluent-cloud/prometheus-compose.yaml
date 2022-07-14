@@ -1,0 +1,10 @@
+version: "2"
+services:
+  prometheus-confluent-cloud:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml
+      - ./prometheus-data:/prometheus
+    ports:
+      # expose this prometheus on port 9091
+      - "9091:9090"

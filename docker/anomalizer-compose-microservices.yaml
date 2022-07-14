@@ -1,0 +1,106 @@
+version: "2"
+services:
+
+  # anomalizer
+  anomalizer-api:
+    image: ghcr.io/pogadog/anomalizer-arm64:latest
+    ports:
+      - "8056:8056"
+    environment:
+      - LOKI=http://host.docker.internal:3100
+      - ANOMALIZER_ENGINE=http://anomalizer-engine:8060
+      - ANOMALIZER_IMAGES=http://anomalizer-images-{SHARD}:8061
+      - ANOMALIZER_CORRELATOR=http://anomalizer-correlator:8062
+    entrypoint:
+      python anomalizer-api.py
+    depends_on:
+      - anomalizer-engine
+      - anomalizer-images-0
+      - anomalizer-images-1
+      - anomalizer-images-2
+      - anomalizer-correlator
+
+  anomalizer-images-0:
+    image: ghcr.io/pogadog/anomalizer-arm64:latest
+    environment:
+      - I_SHARD=0
+      - LOKI=http://host.docker.internal:3100
+      - ANOMALIZER_IMAGES_PORT=8061
+      - ANOMALIZER_ENGINE=http://anomalizer-engine:8060
+      - ANOMALIZER_CORRELATOR=http://anomalizer-correlator:8062
+    entrypoint:
+      python anomalizer-images.py
+    depends_on:
+      - anomalizer-engine
+
+  anomalizer-images-1:
+    image: ghcr.io/pogadog/anomalizer-arm64:latest
+    environment:
+      - I_SHARD=1
+      - LOKI=http://host.docker.internal:3100
+      - ANOMALIZER_IMAGES_PORT=8061
+      - ANOMALIZER_ENGINE=http://anomalizer-engine:8060
+      - ANOMALIZER_CORRELATOR=http://anomalizer-correlator:8062
+    entrypoint:
+      python anomalizer-images.py
+    depends_on:
+      - anomalizer-engine
+
+  anomalizer-images-2:
+    image: ghcr.io/pogadog/anomalizer-arm64:latest
+    environment:
+      - I_SHARD=2
+      - LOKI=http://host.docker.internal:3100
+      - ANOMALIZER_IMAGES_PORT=8061
+      - ANOMALIZER_ENGINE=http://anomalizer-engine:8060
+      - ANOMALIZER_CORRELATOR=http://anomalizer-correlator:8062
+    entrypoint:
+      python anomalizer-images.py
+    depends_on:
+      - anomalizer-engine
+
+  anomalizer-correlator:
+    image: ghcr.io/pogadog/anomalizer-arm64:latest
+    environment:
+      - LOKI=http://host.docker.internal:3100
+      - ANOMALIZER_ENGINE=http://anomalizer-engine:8060
+    entrypoint:
+      python anomalizer-correlator.py
+    depends_on:
+      - anomalizer-engine
+
+  anomalizer-engine:
+    image: ghcr.io/pogadog/anomalizer-arm64:latest
+    entrypoint:
+      python anomalizer-engine.py
+    environment:
+      - PROMETHEUS=host.docker.internal:9090 # change this port to point to another prometheus.
+      - LOKI=http://host.docker.internal:3100
+    ports:
+      - "8060:8060"
+
+  mini-prom:
+    image: ghcr.io/pogadog/anomalizer-arm64:latest
+    ports:
+      - "9090:9090"
+    entrypoint:
+      python mini-prom.py
+    environment:
+      - LOKI=http://host.docker.internal:3100
+
+  # anomalizer-ui
+  anomalizer-ui:
+    image: ghcr.io/pogadog/anomalizer-ui-arm64:latest
+    environment:
+      # ENDPOINT is relative to *browser*
+      - ENDPOINT=localhost:8056
+      - PORT=3001
+    ports:
+      - "3001:3001"
+
+  anomalizer-load-test:
+    image: ghcr.io/pogadog/anomalizer-load-test-arm64:latest
+    ports:
+      - "7070:7070"
+
+

@@ -1,6 +1,6 @@
 # polls prometheus and maintains a live-cache of metrics in a form that can be queried with high bandwidth and low
 # latency.
-import os, time, threading, traceback, gc, psutil, requests, uuid, json, re, ast, enum, math
+import os, time, sys, threading, traceback, gc, psutil, requests, uuid, json, re, ast, enum, math
 import pandas as pd
 import numpy as np
 from copy import deepcopy
@@ -36,7 +36,7 @@ INVERT = False
 INCREASE_THRESH = 0.5
 DECREASE_THRESH = -0.25
 
-LIMIT = shared.LIMITS[-2]
+LIMIT = float(os.environ.get('LIMIT', shared.LIMITS[-2]))
 FILTER = ''
 INVERT = False
 
@@ -63,6 +63,8 @@ METRICS = {}
 
 PROMETHEUS_HEALTHY = False
 INTERNAL_FAILURE = False
+
+PROMETHEUS_TIMEOUT=1
 
 START_TIME = time.time()
 
@@ -180,6 +182,7 @@ def filter_metrics():
 
 def cleanup(id, metric):
     try:
+        print('cleanup: id=' + id + ', metric=' + metric)
         ID_MAP.pop(id, None)
         METRIC_MAP.pop(metric, None)
         DATAFRAMES.pop(id, None)
@@ -204,7 +207,7 @@ def poller():
 
 def _metadata():
     try:
-        meta = requests.get(META).json()['data']
+        meta = requests.get(META, timeout=PROMETHEUS_TIMEOUT).json()['data']
         for m in list(meta.keys())[:]:
             METRIC_TYPES[m] = meta[m][0]['type'] # todo: handle multi-variable
             #if not m in METRIC_MAP:
@@ -212,7 +215,7 @@ def _metadata():
         #print('METRIC_TYPES=' + str(METRIC_TYPES))
         return {'status': 'success', 'data': meta}
     except Exception as x:
-        print('unable to contact prometheus at: ' + META)
+        print('unable to contact prometheus at: ' + META, file=sys.stderr)
         return {'status': 'failure'}
 
 def refresh_metrics():
@@ -234,7 +237,7 @@ def refresh_metrics():
         METRICS.update(synth)
         #print('METRICS=' + str(METRICS))
     except Exception as x:
-        print('error refreshing metrics: ' + str(x))
+        print('error refreshing metrics: ' + str(x), file=sys.stderr)
         time.sleep(5)
 
 
@@ -254,7 +257,7 @@ def get_prometheus(metric, _rate, type, step):
         PROM = PROMETHEUS + '/api/v1/query_range?query=' + rate + '(' + metric + agg + ')&start=' + str(start) + '&end=' + str(now) + '&step=' + str(step)
 
         with H_PROMETHEUS_CALL.time():
-            result = requests.get(PROM)
+            result = requests.get(PROM, timeout=PROMETHEUS_TIMEOUT) # Should never timeout, if it does, bail.
 
         PROMETHEUS_HEALTHY = True
 
@@ -470,7 +473,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
         return labels, values, query, dfp
     except Exception as x:
         # traceback.print_exc()
-        print('error collecting DATAFRAME: ' + metric + '.' + id + ': ' + str(x))
+        print('error collecting DATAFRAME: ' + metric + '.' + id + ': ' + str(x), file=sys.stderr)
         C_EXCEPTIONS_HANDLED.labels(x.__class__.__name__).inc()
         INTERNAL_FAILURE = True
         time.sleep(1)
@@ -613,7 +616,7 @@ if __name__ == '__main__':
         startup()
 
         print('PORT=' + str(PORT))
-        app.run(port=PORT, use_reloader=False   )
+        app.run(host='0.0.0.0', port=PORT, use_reloader=False   )
     except Exception as x:
         print('error: ' + str(x))
         exit(1)

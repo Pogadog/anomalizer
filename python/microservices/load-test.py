@@ -81,7 +81,7 @@ def metrics():
     response.mimetype = "text/plain"
     return response
 
-gauges = [Gauge('anomalizer_load_gauge_' + str(i), 'poll-time (seconds)') for i in range(1000)]
+gauges = [Gauge('anomalizer_load_gauge_' + str(i), 'poll-time (seconds)') for i in range(100)]
 
 def load_test(index):
     endpoint = 'http://localhost:7070/server'

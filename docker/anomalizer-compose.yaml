@@ -8,6 +8,7 @@ services:
       - "8056:8056"
     environment:
       - PROMETHEUS=host.docker.internal:9090 # change this port to point to another prometheus.
+      - LOKI=http://host.docker.internal:3100
     #depends_on:
       - anomalizer-prometheus
       #- mini-prom
@@ -31,7 +32,7 @@ services:
     image: prom/prometheus:latest
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
-      - ./prometheus-data:/prometheus
+      - ../prometheus-data:/prometheus
     ports:
       - "9090:9090" # expose this prometheus on 9091 host port
 

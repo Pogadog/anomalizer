@@ -1,0 +1,6 @@
+name: anomalizer-logging
+runtime:
+  name: python
+  options:
+    virtualenv: venv
+description: Deploy anomalizer analytics to confluent cloud

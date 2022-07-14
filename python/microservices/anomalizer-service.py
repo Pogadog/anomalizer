@@ -20,11 +20,12 @@ try:
     processes.append(subprocess.Popen(['python', PATH + 'anomalizer-engine.py'], close_fds=False))
     time.sleep(2)
     ENV = os.environ
-    ENV['SHARDS'] = str(shared.SHARDS)
-    for i in range(0, shared.SHARDS):
-        processes.append(subprocess.Popen(['python', PATH + 'anomalizer-images.py'], close_fds=False, env=ENV.update({'SHARD': str(i)})))
+    ENV['SHARDS'] = str(os.environ.get('I_SHARDS', 1))
+    for i in range(0, int(ENV['SHARDS'])):
+        processes.append(subprocess.Popen(['python', PATH + 'anomalizer-images.py'], close_fds=False, env=ENV.update({'I_SHARD': str(i)})))
     time.sleep(2)
-    for i in range(0, shared.N_SHARDS):
+    ENV['SHARDS'] = str(os.environ.get('C_SHARDS', 1))
+    for i in range(0, int(ENV['SHARDS'])):
         processes.append(subprocess.Popen(['python', PATH + 'anomalizer-correlator.py'], close_fds=False, env=ENV.update({'C_SHARD': str(i)})))
     time.sleep(2)
     processes.append(subprocess.Popen(['python', PATH + 'anomalizer-api.py'], close_fds=False))

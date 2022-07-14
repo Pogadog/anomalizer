@@ -1,0 +1,17 @@
+scrape_configs:
+  - job_name: Confluent Cloud
+    scrape_interval: 1m
+    scrape_timeout: 1m
+    honor_timestamps: true
+    static_configs:
+      - targets:
+          - api.telemetry.confluent.cloud
+    scheme: https
+    basic_auth:
+      username: 2MYP64LUBGOIZ673
+      password: e/V7etOnDMplmGGeGByI2RqDCm9EaHM5GiS0uPKHPRA9eSQ2O9GjHVhNYhOUL/1x
+    metrics_path: /v2/metrics/cloud/export
+    params:
+      "resource.kafka.id":
+        - lkc-k80rg2
+        - lkc-xq51og

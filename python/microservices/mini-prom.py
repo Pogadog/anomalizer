@@ -5,9 +5,10 @@
 #   /metrics -- current metrics gathered from other prometheus (proxy)
 #   /api/v1/metadata -- metadata about metrics
 #   /api/v1/query_range?query=<metric>>&start=<start>>&end=<end>&step=<step> -- time-series for metrics.
-import traceback
-import pickle
+import json, sys
 import shared
+
+MINI_PROM_PICKLE = 'mini-prom.pickle'
 
 shared.hook_logging('mini-prom')
 
@@ -26,7 +27,7 @@ log = logging.getLogger('werkzeug')
 log.setLevel(logging.WARN)
 
 #server = Flask(__name__)
-server = APIFlask(__name__)
+server = APIFlask(__name__, title='mini-prom')
 
 @server.route('/health')
 @server.doc(summary='healthcheck', description='health-check endpoint')
@@ -96,7 +97,7 @@ def query_range():
             'result': []
         }
     }
-    query = unquote(request.query_string)
+    query = unquote(request.query_string.decode())
     split = re.split(r'[()]', query)
     if split[0].endswith('rate'):
         metric, rate = split[1].split('[')
@@ -151,11 +152,12 @@ def read_from_cloud (name):
             blob.download_to_file(file)
 
 def miniprom():
+    global CONFIG
     # load prometheus.yaml and start scraping it
     with open(PATH + 'mini-prom.yaml') as file:
         CONFIG = yaml.safe_load(file)
 
-    print(CONFIG)
+    print(yaml.dump(CONFIG))
 
     def scraper(job, targets, scrape_interval):
         while True:
@@ -191,10 +193,22 @@ def miniprom():
                         #    print(name + ': ' + str(METRICS_BY_NAME[CURRENT]['metrics'][name]))
                     except Exception as x:
                         # traceback.print_exc()
-                        print('scrape exception: ' + str(x))
+                        print('scrape exception: ' + str(x), sys.stderr)
             time.sleep(scrape_interval)
 
     import threading, pickle
+    
+    def checkpoint():
+        while True:
+            # passivate to the cloud bucket.
+            file = open(MINI_PROM_PICKLE, 'wb')
+            print('passivating to mini-prom.pickle')
+            with file:
+                pickle.dump([METRICS_BY_NAME, METRICS_FAMILY], file=file)
+            print('pickled mini-prom.pickle to disk')
+            write_to_cloud(MINI_PROM_PICKLE)
+            time.sleep(60)
+    
     # todo: break this down into multiple threads and poll at the appropriate rates.
     def poller():
         time.sleep(1) # server come up.
@@ -206,30 +220,34 @@ def miniprom():
             # support reasonable scrape intervals, not the unreasonable d, h, ms versions.
             scrape_interval = num*(60 if units=='m' else 1)
             threading.Thread(target=scraper, args=(job, targets, scrape_interval)).start()
+        
+        # start thread to checkpoint the state one a per-minugte basis
+        threading.Thread(target=checkpoint)
+        
 
-    if os.environ.get('RESTORE_STATE', None):
+    if os.environ.get('RESTORE_STATE', 'false')=='true':
         try:
-            read_from_cloud('mini-prom.pickle')
+            read_from_cloud(MINI_PROM_PICKLE)
         except Exception as x:
             #traceback.print_exc()
             print('unable to read from mini-prom.pickle, state will be reset: ' + repr(x))
 
         try:
-            file = open('mini-prom.pickle', 'rb')
+            file = open(MINI_PROM_PICKLE, 'rb')
             global METRICS_BY_NAME, METRICS_FAMILY
             with file:
                 METRICS_BY_NAME, METRICS_FAMILY = pickle.load(file)
         except Exception as x:
-            print('unable to load local mini-prom.pickle: ' + repr(x))
+            print('unable to load local mini-prom.pickle: ' + repr(x), sys.stderr)
 
     def shutdown(signum, frame):
         # passivate to the cloud bucket.
-        file = open('mini-prom.pickle', 'wb')
+        file = open(MINI_PROM_PICKLE, 'wb')
         print('passivating to mini-prom.pickle')
         with file:
             pickle.dump([METRICS_BY_NAME, METRICS_FAMILY], file=file)
         print('pickled mini-prom.pickle to disk')
-        write_to_cloud('mini-prom.pickle')
+        write_to_cloud(MINI_PROM_PICKLE)
         exit(0)
 
     import signal
@@ -241,5 +259,4 @@ def miniprom():
     server.run(host='0.0.0.0', port=PORT)
 
 if __name__=='__main__':
-
     miniprom()

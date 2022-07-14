@@ -2,7 +2,9 @@
 # * anomalizer-images
 # * anomalizer-engine
 
-import os, json
+import os, json, random, re
+import sys
+import traceback
 
 from flask import Flask, jsonify, request, make_response, send_from_directory
 
@@ -28,19 +30,26 @@ ANOMALIZER_CORRELATOR_HEALTHY = Health.UNKNOWN
 # thanks to: https://stackoverflow.com/questions/6656363/proxying-to-another-web-service-with-flask
 def _proxy(*args, **kwargs):
     global ANOMALIZER_ENGINE_HEALTHY, ANOMALIZER_IMAGES_HEALTHY, ANOMALIZER_CORRELATOR_HEALTHY
-    if ANOMALIZER_ENGINE in args[0]:
-        ANOMALIZER_ENGINE_HEALTHY = Health.UP
-    if ANOMALIZER_IMAGES in args[0]:
-        ANOMALIZER_IMAGES_HEALTHY = Health.UP
-    if ANOMALIZER_CORRELATOR in args[0]:
-        ANOMALIZER_CORRELATOR_HEALTHY = Health.UP
-    print('proxy: ' + request.url + '->' + args[0])
+    if args:
+        if ANOMALIZER_ENGINE in args[0]:
+            ANOMALIZER_ENGINE_HEALTHY = Health.UP
+        if ANOMALIZER_IMAGES in args[0]:
+            ANOMALIZER_IMAGES_HEALTHY = Health.UP
+        if ANOMALIZER_CORRELATOR in args[0]:
+            ANOMALIZER_CORRELATOR_HEALTHY = Health.UP
+        print('proxy: ' + request.url + '->' + args[0])
     try:
-        url = request.url.replace(request.host_url, args[0])
-        if 'proxy' in url:
-            url = url.replace('/proxy/engine', '')
-            url = url.replace('/proxy/images', '')
-            url = url.replace('/proxy/correlator', '')
+        url = request.url
+        if args:
+            url = url.replace(request.host_url, args[0]+'/')
+            if 'proxy' in url:
+                url = url.replace('/proxy/engine', '')
+                url = url.replace('/proxy/images', '')
+                url = url.replace('/proxy/correlator', '')
+        else:
+            url = re.sub('.*/proxy/', '', url)
+            if not url.startswith(('http')):
+                url = 'http://' + url
         resp = requests.request(
             method=request.method,
             url=url,
@@ -55,23 +64,26 @@ def _proxy(*args, **kwargs):
 
         response = Response(resp.content, resp.status_code, headers)
         return response
-    except:
+    except Exception as x:
+        print('error proxying request.url=' + request.url + ': ' + repr(x), sys.stderr)
+        traceback.print_exc()
         if ANOMALIZER_ENGINE in args[0]:
             ANOMALIZER_ENGINE_HEALTHY = Health.DOWN
         if ANOMALIZER_IMAGES in args[0]:
             ANOMALIZER_IMAGES_HEALTHY = Health.DOWN
         if ANOMALIZER_CORRELATOR in args[0]:
             ANOMALIZER_CORRELATOR_HEALTHY = Health.DOWN
+        return make_response({'status': 'down', 'endpoint': url}, 502)
 
 
 app = APIFlask(__name__, title='anomalizer-api', static_folder='web-build')
 
 PORT = int(os.environ.get('ANOMALIZER_API_PORT', 8056))
 
-ANOMALIZER_ENGINE = 'http://localhost:8060/'
-ANOMALIZER_IMAGES = 'http://localhost:8061/'
-ANOMALIZER_CORRELATOR = 'http://localhost:8062/'
-ANOMALIZER_MONOLITH = 'http://localhost:8056/'
+ANOMALIZER_ENGINE = os.environ.get('ANOMALIZER_ENGINE', 'http://localhost:8060')
+ANOMALIZER_IMAGES = os.environ.get('ANOMALIZER_IMAGES', 'http://localhost:8061')
+ANOMALIZER_CORRELATOR = os.environ.get('ANOMALIZER_CORRELATOR', 'http://localhost:8062')
+ANOMALIZER_API = os.environ.get('ANOMALIZER_API', 'http://localhost:8056')
 
 @app.route('/health')
 def health():
@@ -99,7 +111,7 @@ def images():
     # TODO: Check each shard, accumulate the results.
     images = {}
     headers = {}
-    for i in range(0, shared.SHARDS):
+    for i in range(0, shared.I_SHARDS):
         # TODO: some kind of discovery here, rather than hard-wired ports
         endpoint = shared.shard_endpoint(ANOMALIZER_IMAGES, i)
         image = _proxy(endpoint)
@@ -161,7 +173,7 @@ def filter_metrics_get():
 @app.route('/figure/<id>')
 def figure_id(id):
     id = id.split('.')[0] # handle scattergram ids.
-    shard = shared.shard(id)
+    shard = shared.shard(id, shared.I_SHARDS)
     endpoint = shared.shard_endpoint(ANOMALIZER_IMAGES, shard)
     return _proxy(endpoint)
 
@@ -169,17 +181,27 @@ def figure_id(id):
 def metrics():
     # gather the downstreams via the proxy.
     r1 = _proxy(ANOMALIZER_ENGINE)
-    r2 = _proxy(ANOMALIZER_IMAGES)
-    r3 = _proxy(ANOMALIZER_CORRELATOR)
+    r2 = []
+    for shard in range(shared.I_SHARDS):
+        result = _proxy(shared.shard_endpoint(ANOMALIZER_IMAGES, shard))
+        if result:
+            r2 += [result]
+    r3 = []
+    for shard in range(shared.C_SHARDS):
+        result = _proxy(shared.shard_endpoint(ANOMALIZER_CORRELATOR, shard))
+        if result:
+            r3 += [result]
 
     # add in our metrics.
     lines = ''
     lines += '# HELP anomalizer_engine     ************* anomalizer-engine metrics\n'
     lines += r1.data.decode() if r1 else '# HELP anomalizer-engine no metrics\n'
-    lines += '# HELP anomalizer_images     ************* anomalizer-images metrics \n'
-    lines += r2.data.decode() if r2 else '# HELP anomalizer-images no metrics\n'
-    lines += '# HELP anomalizer_correlator ************* anomalizer-corelator metrics\n'
-    lines += r3.data.decode() if r3 else '# HELP anomalizer-correlator no metrics\n'
+    for shard, r in enumerate(r2):
+        lines += '# HELP anomalizer_images     ************* anomalizer-images-' + str(shard) + ' metrics \n'
+        lines += r.data.decode() if r else '# HELP anomalizer-images-' + str(shard) + ' no metrics\n'
+    for shard, r in enumerate(r3):
+        lines += '# HELP anomalizer_correlator     ************* anomalizer-correlator-' + str(shard) + ' metrics \n'
+        lines += r.data.decode() if r else '# HELP anomalizer-correlator-' + str(shard) + ' no metrics\n'
     latest = generate_latest()
     lines += latest.decode()
 
@@ -211,12 +233,17 @@ def serve(path):
 @app.route('/proxy/<path:path>')
 def proxy(path):
     print('proxy: ' + path)
-    if 'engine' in path:
+    if 'engine/' in path:
         return _proxy(ANOMALIZER_ENGINE)
-    if 'images' in path:
-        return _proxy(ANOMALIZER_IMAGES)
-    if 'correlator' in path:
-        return _proxy(ANOMALIZER_CORRELATOR)
+    if 'images/' in path:
+        # random load-balancing.
+        result = _proxy(shared.shard_endpoint(ANOMALIZER_IMAGES, random.randint(0, shared.I_SHARDS-1)))
+        return result
+    if 'correlator/' in path:
+        result = _proxy(shared.shard_endpoint(ANOMALIZER_CORRELATOR, random.randint(0, shared.C_SHARDS-1)))
+        return result
+    # most general case e.g. /proxy/anomalizer-engine-0/...
+    return _proxy()
 
 if __name__ == '__main__':
     try:

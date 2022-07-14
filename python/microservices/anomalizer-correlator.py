@@ -1,4 +1,6 @@
 import os, time, threading, traceback, gc, psutil, requests, uuid, json, re, ast, enum
+import sys
+
 import pandas as pd
 import numpy as np
 from base64 import b64encode
@@ -39,7 +41,7 @@ T_CORRELATE_ALL = T_CORRELATE.labels(['all'])
 T_CORRELATE_ID = T_CORRELATE.labels(['id'])
 
 S_TO_IMAGE = shared.S_TO_IMAGE.labels('correlator')
-S_POLL_METRICS = shared.S_POLL_METRICS.labels('correlator-' + str(shared.C_SHARD))
+S_POLL_METRICS = shared.S_POLL_METRICS.labels('correlator-' + str(C_SHARD))
 
 @S_TO_IMAGE.time() #.labels('correlator')
 def to_image(fig, id=None):
@@ -95,7 +97,7 @@ def poll_dataframes():
                     ID_MAP[_id] = id_map[_id]
             except Exception as x:
                 #traceback.print_exc()
-                print(repr(x))
+                print(repr(x), sys.stderr)
                 ANOMALIZER_ENGINE_HEALTHY = False
         time.sleep(1)
 
@@ -216,6 +218,7 @@ def correlate(id, negative):
                     values = list(v[isort])
                     fit = np.abs(values).sum()/N_CORR
                     #print('metrics=' + str(metrics), ', correlates=' + str(values))
+                    print('fit=' + str(fit))
                     timeseries = data[metrics].T.values
                     images = []
                     for i, ts in enumerate(timeseries):
@@ -249,7 +252,7 @@ def correlate(id, negative):
 
         except Exception as x:
             traceback.print_exc()
-            print('correlate failed: ' + repr(x))
+            print('correlate failed: ' + repr(x), sys.stderr)
             return {'status': 'failed', 'exception': str(x)}
 
 @app.route('/metrics')
@@ -278,7 +281,7 @@ if __name__ == '__main__':
         startup()
 
         print('PORT=' + str(PORT))
-        app.run(port=PORT, use_reloader=False)
+        app.run(host='0.0.0.0', port=PORT, use_reloader=False)
     except Exception as x:
         print(repr(x))
         exit(1)

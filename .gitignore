@@ -7,6 +7,7 @@ __pycache__/
 *.pat*
 .secrets.sh
 *.pickle
+ccloud.conf
 
 docker/web-build/
 
@@ -137,5 +138,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 /docker/victoria-metrics-data/
-/docker/prometheus-data/
+/prometheus-data/
 /docker/prometheus-data-local/

@@ -7,37 +7,24 @@ scrape_configs:
   - job_name: 'anomalizer-engine'
     scrape_interval: 10s
     static_configs:
-      - targets: ['localhost:8060']
+      - targets: ['localhost:8060', 'anomalizer-engine:8060']
 
-  - job_name: 'anomalizer-images-0'
+  - job_name: 'anomalizer-images'
     scrape_interval: 10s
     static_configs:
-      - targets: ['localhost:8061']
-
-  - job_name: 'anomalizer-images-1'
-    scrape_interval: 10s
-    static_configs:
-      - targets: ['localhost:18061']
-
-  - job_name: 'anomalizer-images-2'
-    scrape_interval: 10s
-    static_configs:
-      - targets: ['localhost:28061']
-
-  - job_name: 'anomalizer-images-3'
-    scrape_interval: 10s
-    static_configs:
-      - targets: ['localhost:38061']
+      - targets: ['localhost:8061', 'localhost:8062', 'localhost:8063',
+          'anomalizer-images-0:8061', 'anomalizer-images-1:8061', 'anomalizer-images-2:8061']
 
   - job_name: 'anomalizer-correlator'
     scrape_interval: 10s
     static_configs:
-      - targets: ['localhost:8062', 'localhost:18062', 'localhost:28062']
+      - targets: ['localhost:8062', 'localhost:18062', 'localhost:28062',
+          'anomalizer-correlator-0:8062', 'anomalizer-correlator-1:8062', 'anomalizer-correlator-2:8062']
 
   - job_name: 'load-test'
     scrape_interval: 10s
     static_configs:
-      - targets: ['localhost:7070']
+      - targets: ['localhost:7070', 'load-test-0:7070', 'anomalizer-load-test:7070']
 
   - job_name: 'mini-prom'
     scrape_interval: 10s

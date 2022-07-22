@@ -1,4 +1,0 @@
-config:
-  confluent:password:
-    secure: AAABAJrahLnQX3PTVbMAFV0P9fpjoHmsJt/UMaAgZL13XwRUN9VCTg3uN84=
-  confluent:username: simon@pogadog.com

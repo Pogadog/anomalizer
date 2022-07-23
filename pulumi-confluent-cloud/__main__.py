@@ -26,7 +26,4 @@ def launch_anomalizer(args):
 
 #Output.all(cluster.bootstrap_servers, api_key.key, api_key.secret).apply(lambda args: launch_anomalizer(args))
 
-Output.all(env.id, api_key.key, api_key.secret, cluster.id).apply(lambda args:
-    cli.ksqldb(env_id=args[0], cluster_name='anomalizer-ksqldb', api_key=args[1], api_secret=args[2], cluster_id=args[3], depends_on=[api_key, cluster, env])
-)
-
+cli.ksqldb('anomalizer-ksqldb-1', env, api_key, cluster)

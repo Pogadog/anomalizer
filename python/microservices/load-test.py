@@ -20,6 +20,7 @@ G_THREADS = Gauge('load_test_threads', 'number of client threads')
 app = Flask(__name__)
 
 MAX_LOAD = 20
+MAX_GAUGES = 10
 SLEEP = 0.1
 THREADS = []
 
@@ -81,7 +82,7 @@ def metrics():
     response.mimetype = "text/plain"
     return response
 
-gauges = [Gauge('anomalizer_load_gauge_' + str(i), 'poll-time (seconds)') for i in range(100)]
+GAUGES = [Gauge('anomalizer_load_gauge_' + str(i), 'poll-time (seconds)') for i in range(MAX_GAUGES)]
 
 def load_test(index):
     endpoint = 'http://localhost:7070/server'
@@ -98,6 +99,12 @@ def up_down_load():
     load = 1
     updown = 1
     while True:
+        # generate a lot of synthetic gauges.
+        #print('load_test: ' + current_thread().name)
+        count = 0
+        for gauge in GAUGES:
+            gauge.set(count)
+            count += 1
         # spend 1 minute at each load level
         time.sleep(60)
         load += updown
@@ -105,12 +112,6 @@ def up_down_load():
             updown = -updown
         set_load(load)
 
-        # generate a lot of synthetic gauges.
-        #print('load_test: ' + current_thread().name)
-        count = 0
-        for gauge in gauges:
-            gauge.set(count)
-            count += 1
 
 
 threading.Thread(target=up_down_load).start()

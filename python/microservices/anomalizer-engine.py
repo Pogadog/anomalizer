@@ -182,7 +182,7 @@ def filter_metrics():
 
 def cleanup(id, metric):
     try:
-        print('cleanup: id=' + id + ', metric=' + metric)
+        #print('cleanup: id=' + id + ', metric=' + metric)
         ID_MAP.pop(id, None)
         METRIC_MAP.pop(metric, None)
         DATAFRAMES.pop(id, None)
@@ -616,7 +616,7 @@ if __name__ == '__main__':
         startup()
 
         print('PORT=' + str(PORT))
-        app.run(host='0.0.0.0', port=PORT, use_reloader=False   )
+        app.run(host='0.0.0.0', port=PORT, use_reloader=False)
     except Exception as x:
         print('error: ' + str(x))
         exit(1)

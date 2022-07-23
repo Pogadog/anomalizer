@@ -12,4 +12,4 @@ USER 1000
 LABEL org.opencontainers.image.source https://github.com/pogadog/anomalizer
 
 WORKDIR microservices
-CMD python -u anomalizer-service.py
+ENTRYPOINT ["python", "-u", "anomalizer-service.py"]

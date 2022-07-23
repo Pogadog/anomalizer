@@ -133,29 +133,6 @@ print(f'LOKI={LOKI}')
 
 STDERR = sys.stderr # before override below.
 
-import ccloud_lib
-from confluent_kafka import Producer, KafkaError
-
-class ConfluentHandler(logging.Handler):
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        self.topic = kwargs['topic']
-        config = {
-            'bootstrap.servers': kwargs['bootstrap_servers'],
-            'security.protocol': 'SASL_SSL',
-            'sasl.mechanisms': 'PLAIN',
-            'sasl.username': kwargs['sasl_username'],
-            'sasl.password': kwargs['sasl_password'],
-            'session.timeout.ms': '45000',
-            'group.id': 'anomalizer-producer-group-1',
-        }
-        ccloud_lib.create_topic(config, self.topic)
-        self    .producer = Producer(config)
-
-    def emit(self, record):
-        self.producer.produce(self.topic, key=str(record.name), value=json.dumps({'name': record.name, 'filename': record.filename, 'levelname': record.levelname,
-            'lineno': record.lineno, 'message': record.message, 'module': record.module, 'threadName': record.threadName}))
-
 class SafeLokiHandler(logging_loki.LokiHandler):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -199,6 +176,28 @@ class LoggerWriter:
         self.level('')
 
 if os.environ.get('BOOTSTRAP_SERVERS'):
+    import ccloud_lib
+    from confluent_kafka import Producer, KafkaError
+
+    class ConfluentHandler(logging.Handler):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            self.topic = kwargs['topic']
+            config = {
+                'bootstrap.servers': kwargs['bootstrap_servers'],
+                'security.protocol': 'SASL_SSL',
+                'sasl.mechanisms': 'PLAIN',
+                'sasl.username': kwargs['sasl_username'],
+                'sasl.password': kwargs['sasl_password'],
+                'session.timeout.ms': '45000',
+                'group.id': 'anomalizer-producer-group-1',
+            }
+            ccloud_lib.create_topic(config, self.topic)
+            self    .producer = Producer(config)
+
+        def emit(self, record):
+            self.producer.produce(self.topic, key=str(record.name), value=json.dumps({'name': record.name, 'filename': record.filename, 'levelname': record.levelname,
+                                                                                      'lineno': record.lineno, 'message': record.message, 'module': record.module, 'threadName': record.threadName}))
     confluent = ConfluentHandler(bootstrap_servers=os.environ.get('BOOTSTRAP_SERVERS'),
                                  topic='loki-anomalizer',
                                  sasl_username=os.environ.get('SASL_USERNAME'),

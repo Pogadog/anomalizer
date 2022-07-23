@@ -8,7 +8,7 @@
 import json, sys
 import shared
 
-MINI_PROM_PICKLE = 'mini-prom.pickle'
+MINI_PROM_PICKLE = '/tmp/mini-prom.pickle'
 
 shared.hook_logging('mini-prom')
 
@@ -24,7 +24,7 @@ import requests, time, ast, re, os
 
 import logging
 log = logging.getLogger('werkzeug')
-log.setLevel(logging.WARN)
+log.setLevel(logging.ERROR)
 
 #server = Flask(__name__)
 server = APIFlask(__name__, title='mini-prom')
@@ -118,7 +118,7 @@ def query_range():
             values = [[_m[0], str(_m[1])] for _m in m[tag]]
             if values and rate and not (metric.endswith('_count')):
                 dvalues = pd.DataFrame(values, dtype=float)
-                diff = dvalues.diff()
+                diff = dvalues.diff().clip(lower=0)
                 diff = diff.rolling(rate//60).mean() # TODO: read the time interval from the metric (or scrape).
                 diff = diff.fillna(0)
                 dvalues.iloc[:,1:] = diff.iloc[:,1:]
@@ -138,14 +138,14 @@ def write_to_cloud (upload):
     print('write_to_cloud: ' + upload)
     client = storage.Client()
     bucket = client.get_bucket( 'anomalizer-demo.appspot.com' )
-    blob = bucket.blob('mini-prom/' + upload)
+    blob = bucket.blob('/mini-prom/' + upload)
     blob.upload_from_filename(upload)
 
 def read_from_cloud (name):
     print('read_from_cloud: ' + name)
     client = storage.Client()
     bucket = client.get_bucket( 'anomalizer-demo.appspot.com' )
-    blob = bucket.blob('mini-prom/' + name)
+    blob = bucket.blob('/mini-prom/' + name)
     if blob.exists():
         file = open(name, 'wb')
         with file:
@@ -198,17 +198,24 @@ def miniprom():
 
     import threading, pickle
     
-    def checkpoint():
-        while True:
-            # passivate to the cloud bucket.
-            file = open(MINI_PROM_PICKLE, 'wb')
-            print('passivating to mini-prom.pickle')
-            with file:
-                pickle.dump([METRICS_BY_NAME, METRICS_FAMILY], file=file)
-            print('pickled mini-prom.pickle to disk')
-            write_to_cloud(MINI_PROM_PICKLE)
-            time.sleep(60)
-    
+    def checkpoint(loop=True):
+        if os.environ.get('RESTORE_STATE', 'False')=='True':
+            while True:
+                try:
+                    # passivate to the cloud bucket.
+                    file = open(MINI_PROM_PICKLE, 'wb')
+                    print('passivating to: ' + MINI_PROM_PICKLE)
+                    with file:
+                        pickle.dump([METRICS_BY_NAME, METRICS_FAMILY], file=file)
+                    print('pickled to disk: ' + MINI_PROM_PICKLE)
+                    write_to_cloud(MINI_PROM_PICKLE)
+                    if not loop:
+                        break
+                except:
+                    # ignore errors writing to cloud bucket.
+                    pass
+                time.sleep(60)
+
     # todo: break this down into multiple threads and poll at the appropriate rates.
     def poller():
         time.sleep(1) # server come up.
@@ -222,12 +229,13 @@ def miniprom():
             threading.Thread(target=scraper, args=(job, targets, scrape_interval)).start()
         
         # start thread to checkpoint the state one a per-minugte basis
-        threading.Thread(target=checkpoint)
+        threading.Thread(target=checkpoint).start()
         
 
-    if os.environ.get('RESTORE_STATE', 'false')=='true':
+    if os.environ.get('RESTORE_STATE', 'False')=='True':
         try:
             read_from_cloud(MINI_PROM_PICKLE)
+            pass
         except Exception as x:
             #traceback.print_exc()
             print('unable to read from mini-prom.pickle, state will be reset: ' + repr(x))
@@ -241,13 +249,7 @@ def miniprom():
             print('unable to load local mini-prom.pickle: ' + repr(x), sys.stderr)
 
     def shutdown(signum, frame):
-        # passivate to the cloud bucket.
-        file = open(MINI_PROM_PICKLE, 'wb')
-        print('passivating to mini-prom.pickle')
-        with file:
-            pickle.dump([METRICS_BY_NAME, METRICS_FAMILY], file=file)
-        print('pickled mini-prom.pickle to disk')
-        write_to_cloud(MINI_PROM_PICKLE)
+        checkpoint(False)
         exit(0)
 
     import signal

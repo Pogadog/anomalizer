@@ -218,7 +218,7 @@ def correlate(id, negative):
                     values = list(v[isort])
                     fit = np.abs(values).sum()/N_CORR
                     #print('metrics=' + str(metrics), ', correlates=' + str(values))
-                    print('fit=' + str(fit))
+                    #print('fit=' + str(fit))
                     timeseries = data[metrics].T.values
                     images = []
                     for i, ts in enumerate(timeseries):

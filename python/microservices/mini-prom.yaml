@@ -12,7 +12,7 @@ scrape_configs:
   - job_name: 'anomalizer-images'
     scrape_interval: 10s
     static_configs:
-      - targets: ['localhost:8061', 'localhost:8062', 'localhost:8063',
+      - targets: ['localhost:8061', 'localhost:18061', 'localhost:28061 ',
           'anomalizer-images-0:8061', 'anomalizer-images-1:8061', 'anomalizer-images-2:8061']
 
   - job_name: 'anomalizer-correlator'

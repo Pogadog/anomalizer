@@ -11,8 +11,8 @@ PATH = os.environ.get('MICROSERVICES', '')
 print('PATH=' + PATH)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--mini-prom', action='store_true', help='run an internal mini-prometheus for demo purposes')
-parser.add_argument('--load-test', action='store_true', help='spin up a load test on port 7070 to generate interesting metrics')
+parser.add_argument('--mini-prom', action='store_true', help='run an internal mini-prometheus for demo purposes', default=os.environ.get('MINI_PROM', 'False')=='True')
+parser.add_argument('--load-test', action='store_true', help='spin up a load test on port 7070 to generate interesting metrics', default=os.environ.get('LOAD_TEST', 'False')=='True')
 args = parser.parse_args()
 print(args)
 

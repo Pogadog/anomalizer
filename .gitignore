@@ -140,3 +140,4 @@ dmypy.json
 /docker/victoria-metrics-data/
 /prometheus-data/
 /docker/prometheus-data-local/
+/grafana-storage/

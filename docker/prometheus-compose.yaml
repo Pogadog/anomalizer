@@ -26,3 +26,11 @@ services:
     image: grafana/grafana:latest
     ports:
       - "3000:3000"
+    volumes:
+      # persist the grafana store -- stop losing dashbaords.
+      - ../grafana-storage:/var/lib/grafana
+    environment:
+      # allow embedding.
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_PANELS_DISABLE_SANITIZE_HTML=true
+      - GF_PLUGINS_ENABLE_ALPHA=true

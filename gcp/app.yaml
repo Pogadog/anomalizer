@@ -25,5 +25,5 @@ automatic_scaling:
 
 env_variables:
   RESTORE_STATE: True
-  # TODO: this needs to be in a secret store
-  SENTRY_KEY: https://1c1774e5abf343b7a38b44ee99bfb3ff@o1309692.ingest.sentry.io/6556078
+  LOAD_TEST: True
+  MINI_PROM: True

@@ -14,7 +14,7 @@
 
 # [START gae_python38_app]
 # [START gae_python3_app]
-from flask import Flask, request, Response, send_from_directory
+from flask import Flask, request, Response, send_from_directory, make_response
 import subprocess, requests
 import traceback, os
 import time
@@ -38,25 +38,32 @@ def hello():
 # thanks to: https://stackoverflow.com/questions/6656363/proxying-to-another-web-service-with-flask
 def _proxy(*args, **kwargs):
 
-    print('proxy: ' + request.url + '->' + args[0])
-    try:
-        resp = requests.request(
-            method=request.method,
-            url=request.url.replace(request.host_url, args[0]),
-            headers={key: value for (key, value) in request.headers if key != 'Host'},
-            data=request.get_data(),
-            cookies=request.cookies,
-            allow_redirects=False)
+    count = 3 # retries before concluding a failure.
+    while True:
+        print('proxy: ' + request.url + '->' + args[0])
+        try:
+            resp = requests.request(
+                method=request.method,
+                url=request.url.replace(request.host_url, args[0]),
+                headers={key: value for (key, value) in request.headers if key != 'Host'},
+                data=request.get_data(),
+                cookies=request.cookies,
+                allow_redirects=False)
 
-        excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
-        headers = [(name, value) for (name, value) in resp.raw.headers.items()
-                   if name.lower() not in excluded_headers]
+            excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
+            headers = [(name, value) for (name, value) in resp.raw.headers.items()
+                       if name.lower() not in excluded_headers]
 
-        response = Response(resp.content, resp.status_code, headers)
+            response = Response(resp.content, resp.status_code, headers)
 
-        return response
-    except:
-        traceback.print_exc()
+            return response
+        except Exception as x:
+            if count == 0:
+                traceback.print_exc()
+                return make_response({'status': 'failed', 'exception': repr(x)}, 500)
+            else:
+                count -= 1
+                time.sleep(1)
 
 CONTEXT = ''
 

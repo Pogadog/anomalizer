@@ -1,6 +1,6 @@
 # implement useful confluent-cli commands as local.Command() wrapped objects.
 
-import subprocess
+import subprocess, os
 import sys, json
 
 from pulumi import ResourceOptions, Output
@@ -58,10 +58,25 @@ def ksqldb(cluster_name, env, api, cluster):
         )
     )
 
-def ksqldb_command(cmd):
-    # invoke command using rest api on the endpoint created in ksqldb
-    pass
+from ksql import KSQLAPI
 
+def ksqldb_invoke(cmd, api_key, api_secret):
+    # invoke command using rest api on the endpoint created in ksqldb
+    endpoint = os.environ.get('CONFLUENT_ENDPOINT')
+    #api_key = os.environ.get('CONFLUENT_KEY')
+    #api_secret = os.environ.get('CONFLUENT_SECRET')
+    client = KSQLAPI(endpoint, api_key=api_key, secret=api_secret)
+    client.ksql(cmd)
+    #client.ksql('CREATE STREAM users (id INTEGER KEY, gender STRING, name STRING, age INTEGER) WITH (kafka_topic=\'users\', partitions=1, value_format=\'JSON\');')
+
+def ksqldb_command(cmd_name, cmd, api):
+      #cmd = cmd.replace("'", "\\'") # escape single quotes.
+      Output.all(api.key, api.secret).apply(lambda args:
+          local.Command(
+              resource_name=cmd_name,
+              create=f'python -c "import confluent_cli as cli; cli.ksqldb_invoke(\'{cmd}\', \'{args[0]}\', \'{args[1]}\')"',
+          )
+      )
 
 
 '''

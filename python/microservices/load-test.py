@@ -13,7 +13,7 @@ import logging
 logging.getLogger("werkzeug").disabled = True
 
 S_SERVER = Summary('load_test_server_request_time', 'time to execute server')
-S_CLIENT_THREAD = Summary('load_test_client_request_time', 'time to call server', ['endpoint', 'thread'])
+S_CLIENT_THREAD = Summary('load_test_client_request_time_per_thread', 'time to call server', ['endpoint', 'thread'])
 S_CLIENT_TOTAL = Summary('load_test_client_request_time_total', 'time to call server', ['endpoint'])
 G_THREADS = Gauge('load_test_threads', 'number of client threads')
 

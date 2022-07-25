@@ -26,4 +26,19 @@ def launch_anomalizer(args):
 
 #Output.all(cluster.bootstrap_servers, api_key.key, api_key.secret).apply(lambda args: launch_anomalizer(args))
 
+# bring up a cluster
 cli.ksqldb('anomalizer-ksqldb-1', env, api_key, cluster)
+
+from pulumi.dynamic import ResourceProvider, CreateResult
+from ksql import KSQLAPI
+
+class KSQLProvider(ResourceProvider):
+    def create(self, inputs):
+        client = KSQLAPI(endpoint, api_key=api_key, secret=api_secret)
+        return client.ksql(cmd)
+        return CreateResult(id_="foo", outs={})
+
+#cmd = "CREATE STREAM log_stream (name STRING, levelame STRING) WITH (kafka_topic='loki-anomalizer', partitions=1, value_format='JSON');"
+#cli.ksqldb_command('stream_users_1', cmd)
+
+cli.ksqldb_command('show_streams', 'show streams', api_key)

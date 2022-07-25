@@ -17,6 +17,7 @@ from shared import C_EXCEPTIONS_HANDLED
 
 import warnings
 warnings.simplefilter('ignore', np.RankWarning)
+warnings.filterwarnings('ignore', category=RuntimeWarning, module='numpy')
 
 shared.hook_logging('engine')
 
@@ -113,7 +114,7 @@ def dataframes():
 @app.route('/scattergrams')
 def scattergrams():
     scattergrams = deepcopy(SCATTERGRAMS)
-    for k,v in scattergrams.items():
+    for k,v in scattergrams.copy().items():
         for x in v:
             x['xy'] = x['xy'].to_json()
             x['l1'] = x['l1'].to_json()
@@ -229,7 +230,7 @@ def refresh_metrics():
         print('#METRICS=' + str(len(METRICS)) + ', #DATAFRAMES=' + str(len(DATAFRAMES)))
         # synthetic metrics for histogram and summary
         synth = {}
-        for k, metric in METRICS.items():
+        for k, metric in METRICS.copy().items():
             type = metric[0]['type']
             if type=='summary' or type=='histogram':
                 synth.update({k + '_count': [{'type': 'counter'}]})
@@ -252,7 +253,7 @@ def get_prometheus(metric, _rate, type, step):
         rate, agg = '', ''
         if _rate or type == 'counter':
             rate = 'rate'
-            agg = '[5m]'
+            agg = '[1m]'
 
         PROM = PROMETHEUS + '/api/v1/query_range?query=' + rate + '(' + metric + agg + ')&start=' + str(start) + '&end=' + str(now) + '&step=' + str(step)
 
@@ -263,21 +264,10 @@ def get_prometheus(metric, _rate, type, step):
 
         _json = result.json()['data']['result']
         for i, j in enumerate(_json):
-            if type=='histogram':
-                label = j['metric'].get('le')
-                if not label:
-                    label = str(j['metric'])
-                labels.append(label)
-            elif type=='summary':
-                label = j['metric'].get('quantile')
-                if not label:
-                    label = str(j['metric'])
-                labels.append(label)
-            else:
-                if '__name__' in j['metric']:
-                    del j['metric']['__name__']
-                label = str(j['metric'])
-                labels.append(label)
+            if '__name__' in j['metric']:
+                del j['metric']['__name__']
+            label = str(j['metric'])
+            labels.append(label)
             lvalues = list(map(lambda x: float(x[1]), j['values']))
             values.append(lvalues)
         query = PROM.replace('/api/v1/query_range?query=', '/graph?g0.expr=')
@@ -364,7 +354,8 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
             labels, values, query = get_prometheus(metric + '_sum', True, type, STEP)
             labels_count, values_count, _ = get_prometheus(metric + '_count', True, type, STEP)
 
-            average = pd.DataFrame(values)/pd.DataFrame(values_count)
+            average = pd.DataFrame(values)
+            #average = pd.DataFrame(values)/pd.DataFrame(values_count)
             average = average.fillna(0) # [5m]
             values = average.values.tolist()
 
@@ -472,7 +463,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
 
         return labels, values, query, dfp
     except Exception as x:
-        # traceback.print_exc()
+        traceback.print_exc()
         print('error collecting DATAFRAME: ' + metric + '.' + id + ': ' + str(x), file=sys.stderr)
         C_EXCEPTIONS_HANDLED.labels(x.__class__.__name__).inc()
         INTERNAL_FAILURE = True
@@ -483,6 +474,56 @@ METRICS_PROCESSED = 0
 METRICS_AVAILABLE = 0
 METRICS_DROPPED = 0
 METRICS_TOTAL_TS = 0
+
+N_HIST = 40
+class DistributionFitter:
+    def __init__(self):
+        self.prototypes = pd.DataFrame()
+        self.bins = np.arange(0,N_HIST)
+        # un-scaled normal: range -3..3 for stdev==1, centered at 0
+        x = (self.bins-N_HIST//2)/6
+        y = np.exp(-x**2)
+        self.prototypes['gaussian'] = pd.DataFrame(y)
+        y = np.exp(-x**4)
+        self.prototypes['low-variance'] = pd.DataFrame(y)
+        y = np.exp(-np.abs(x))
+        self.prototypes['high-variance'] = pd.DataFrame(y)
+        x = self.bins/3
+        y = np.exp(-x)
+        self.prototypes['right-tail'] = pd.DataFrame(y)
+        self.prototypes['left-tail'] = pd.DataFrame(np.flipud(y))
+
+        x = (self.bins-N_HIST//2)/6
+        y1 = np.exp(-(x-3.3)**4)
+        y2 = np.exp(-(x+3.6)**4)
+        self.prototypes['bimodal']  = pd.DataFrame(y1+y2)
+        #import matplotlib.pyplot as plt
+        #for k,v in self.prototypes.items():
+        #    plt.plot(v)
+        #plt.show()
+
+    def best_fit(self, metric, df):
+        # compute histogram of dataframe, column by column, then do a fit against the prototypes using
+        # pearson correlation.
+        best = {}
+        for k, v in df.iteritems():
+            try:
+                npdf = v.fillna(0).to_numpy()
+                hist = np.histogram(npdf, N_HIST)
+                hdf = pd.DataFrame(hist[0])
+                corr = self.prototypes.corrwith(hdf.iloc[:,0])
+                #print('corr=' + str(corr))
+                if corr.max() > 0.7:
+                    best[k] = corr.idxmax()
+                #print('best=' + str(best))
+            except Exception as x:
+                # don't know, don't care.
+                print('error computing histogram: metric=' + metric + ': ' + repr(x), sys.stderr)
+        return best
+
+
+dist = DistributionFitter()
+
 
 @S_POLL_METRICS.time() #.labels('engine')
 def poll_metrics():
@@ -540,6 +581,14 @@ def poll_metrics():
                             features.update({'increasing': {'increase': mean_shift}})
                         elif mean_shift < DECREASE_THRESH:
                             features.update({'decreasing': {'decrease': mean_shift}})
+
+                    # best_fit uses a 21 bin histogram for the data, and fits a set of prototypes (normal,
+                    # right-skew, left-skew, bi-modal), picking the best fit.
+                    # Fit is judged using Pearson correlation between the prototype and the histogram.
+                    best = dist.best_fit(metric, dfp)
+                    if best:
+                        #print(metric + ': ' + str(best))
+                        features.update({'distribution': best})
 
                     if not dfp is None:
                         std = dfp.std(ddof=0).abs().sum()
@@ -600,6 +649,34 @@ G_METRICS_TOTAL_TS = Gauge('anomalizer_num_metrics_total_timeseries', 'number of
 G_METRICS = Gauge('anomalizer_num_metrics', 'number of metrics')
 G_POLL_TIME = Gauge('anomalizer_poll_time', 'poll-time (seconds)')
 
+log_metrics = logging.getLogger('anomalizer-metrics')
+log_metrics.propagate = False # do not emit on stdout, just send to loki.
+if shared.LOKI:
+    handlers = log_metrics.handlers
+    log_metrics.addHandler(shared.loki_handler)
+
+
+# push metrics as structured logs
+def metrics_as_logs():
+    for k, df in DATAFRAMES.copy().items():
+        try:
+            #last = df.mask(df==0).ffill().iloc[-1] # the last value is often zero. fill forward.
+            last = df.iloc[-2]
+            metric = ID_MAP.get(k)
+            if metric:
+                labels = LABELS[k]
+                metric_type = METRIC_TYPES[metric]
+                for i, v in enumerate(last.values.tolist()):
+                    if metric_type != 'gauge' and v == 0:
+                        continue # treat zero as a a missing value for logging.
+                    blob = {'metric': metric, 'value': v}
+                    blob.update(labels[i])
+                    # issue these metrics as INFO level to get them into the main
+                    # INFO pipeline.
+                    log_metrics.log(logging.INFO, msg=json.dumps(blob))
+        except:
+            traceback.print_exc()
+
 def resource_monitoring():
     while True:
         gc.collect()
@@ -609,7 +686,11 @@ def resource_monitoring():
         G_METRICS_TOTAL_TS.set(METRICS_TOTAL_TS)
         G_METRICS.set(len(METRICS))
         G_POLL_TIME.set(POLL_TIME)
-        time.sleep(30)
+        # also emit the metrics we know about as logs.
+        if shared.LOKI:
+            metrics_as_logs()
+            pass
+        time.sleep(10)
 
 if __name__ == '__main__':
     try:

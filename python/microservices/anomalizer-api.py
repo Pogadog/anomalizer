@@ -65,8 +65,8 @@ def _proxy(*args, **kwargs):
         response = Response(resp.content, resp.status_code, headers)
         return response
     except Exception as x:
-        print('error proxying request.url=' + request.url + ': ' + repr(x), sys.stderr)
-        traceback.print_exc()
+        print('error proxying request.url=' + request.url + '->' + args[0] + ': ' + repr(x), sys.stderr)
+        #traceback.print_exc()
         if ANOMALIZER_ENGINE in args[0]:
             ANOMALIZER_ENGINE_HEALTHY = Health.DOWN
         if ANOMALIZER_IMAGES in args[0]:

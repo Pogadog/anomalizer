@@ -17,29 +17,30 @@ args = parser.parse_args()
 print(args)
 
 try:
+    SLEEP = 0
 
     # https://stackoverflow.com/questions/11585168/launch-an-independent-process-with-python
     if args.load_test:
         processes.append(subprocess.Popen(['python', PATH + 'load-test.py'], close_fds=False))
-        time.sleep(2)
+        time.sleep(SLEEP)
     processes.append(subprocess.Popen(['python', PATH + 'anomalizer-engine.py'], close_fds=False))
-    time.sleep(2)
+    time.sleep(SLEEP)
     ENV = os.environ
     ENV['SHARDS'] = str(os.environ.get('I_SHARDS', 1))
     for i in range(0, int(ENV['SHARDS'])):
         processes.append(subprocess.Popen(['python', PATH + 'anomalizer-images.py'], close_fds=False, env=ENV.update({'I_SHARD': str(i)})))
-    time.sleep(2)
+    time.sleep(SLEEP)
     ENV['SHARDS'] = str(os.environ.get('C_SHARDS', 1))
     for i in range(0, int(ENV['SHARDS'])):
         processes.append(subprocess.Popen(['python', PATH + 'anomalizer-correlator.py'], close_fds=False, env=ENV.update({'C_SHARD': str(i)})))
-    time.sleep(2)
+    time.sleep(SLEEP)
     processes.append(subprocess.Popen(['python', PATH + 'anomalizer-api.py'], close_fds=False))
-    time.sleep(2)
+    time.sleep(SLEEP)
 
     if args.mini_prom:
         # bring up mini-prom last so it doesn't scrape endpoints that are not up.
         processes.append(subprocess.Popen(['python', PATH + 'mini-prom.py'], close_fds=False))
-        time.sleep(2)
+        time.sleep(SLEEP)
 
     print('anomalizer is running: ' + str(processes))
 

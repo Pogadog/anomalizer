@@ -52,6 +52,8 @@ G_MEMORY_VMS = Gauge('anomalizer_memory_vms', 'virtual memory consumption of pro
 G_THREADS = Gauge('anomalizer_active_threads', 'number of active threads')
 G_CPU = Gauge('anomalizer_cpu', 'percent cpu utilizaton')
 
+C_LOG_MESSAGE = Counter('anomalizer_logs', 'log messages by level and name', ('level', 'name'))
+
 import gc, threading, time, psutil
 
 def resource_monitoring():
@@ -128,7 +130,7 @@ class Timer:
 import logging
 import logging_loki
 
-LOKI = os.environ.get('LOKI', 'http://localhost:3100')
+LOKI = os.environ.get('LOKI') #, 'http://localhost:3100')
 print(f'LOKI={LOKI}')
 
 STDERR = sys.stderr # before override below.
@@ -140,16 +142,20 @@ class SafeLokiHandler(logging_loki.LokiHandler):
         # drop loki/network errors on the floor.
         # super().handleError(record)
         pass
+    def emit(self, record):
+        # dogfood: keep a counter of logs by level and log name.
+        super().emit(record)
+        C_LOG_MESSAGE.labels(record.levelname, record.name).inc(1)
 
-handler = SafeLokiHandler(
-    url=f'{LOKI}/loki/api/v1/push',
-    tags={'application': 'anomalizer', 'hostname': socket.gethostname()},
-    auth=('username', 'password'),
-    version='1',
-)
+if LOKI:
+    loki_handler = SafeLokiHandler(
+        url=f'{LOKI}/loki/api/v1/push',
+        tags={'application': 'anomalizer', 'hostname': socket.gethostname()},
+        auth=('username', 'password'),
+        version='1',
+    )
 
-
-logger = logging.getLogger('loki-logger')
+#logger = logging.getLogger('loki-logger')
 
 # hook stdout/stderr into logging with a bridge class.
 # https://stackoverflow.com/questions/19425736/how-to-redirect-stdout-and-stderr-to-logger-in-python
@@ -193,11 +199,15 @@ if os.environ.get('BOOTSTRAP_SERVERS'):
                 'group.id': 'anomalizer-producer-group-1',
             }
             ccloud_lib.create_topic(config, self.topic)
-            self    .producer = Producer(config)
+            self.producer = Producer(config)
 
         def emit(self, record):
-            self.producer.produce(self.topic, key=str(record.name), value=json.dumps({'name': record.name, 'filename': record.filename, 'levelname': record.levelname,
-                                                                                      'lineno': record.lineno, 'message': record.message, 'module': record.module, 'threadName': record.threadName}))
+            try:
+                self.producer.produce(self.topic, key=str(record.name), value=json.dumps({'name': record.name, 'filename': record.filename, 'levelname': record.levelname,
+                                                                                          'lineno': record.lineno, 'message': record.msg, 'module': record.module, 'threadName': record.threadName}))
+            except Exception as x:
+                pass
+
     confluent = ConfluentHandler(bootstrap_servers=os.environ.get('BOOTSTRAP_SERVERS'),
                                  topic='loki-anomalizer',
                                  sasl_username=os.environ.get('SASL_USERNAME'),
@@ -208,7 +218,8 @@ def hook_logging(name):
     logging.basicConfig(level=logging.INFO)
     log = logging.getLogger('anomalizer-' + name)
     # add loki handler.
-    log.addHandler(handler)
+    if LOKI:
+        log.addHandler(loki_handler)
     # only add confluent handler if bootstrap servers are defined.
     if os.environ.get('BOOTSTRAP_SERVERS'):
         log.addHandler(confluent)

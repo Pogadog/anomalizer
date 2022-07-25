@@ -6,6 +6,8 @@
 #   /api/v1/metadata -- metadata about metrics
 #   /api/v1/query_range?query=<metric>>&start=<start>>&end=<end>&step=<step> -- time-series for metrics.
 import json, sys
+import traceback
+
 import shared
 
 MINI_PROM_PICKLE = '/tmp/mini-prom.pickle'
@@ -111,6 +113,8 @@ def query_range():
 
     current = METRICS_BY_NAME[CURRENT]
     family = METRICS_FAMILY.get(metric, {})
+    if family.get('type') == 'counter':
+        metric += '_total'
     m = current['metrics'].get(metric)
     result = blob['data']['result']
     if m:
@@ -171,6 +175,7 @@ def miniprom():
                             METRICS_FAMILY[family.name] = {'help': family.documentation, 'type': family.type, 'unit': family.unit}
                             for sample in family.samples:
                                 name = sample.name
+                                #print('  scraping ' + name)
                                 value = sample.value
                                 labels = sample.labels
                                 labels.update({'job': job, 'instance': target})
@@ -217,7 +222,7 @@ def miniprom():
                 time.sleep(60)
 
     # todo: break this down into multiple threads and poll at the appropriate rates.
-    def poller():
+    def start_scrapers():
         time.sleep(1) # server come up.
         for config in CONFIG['scrape_configs']:
             job = config['job_name']
@@ -255,10 +260,13 @@ def miniprom():
     import signal
     signal.signal(signal.SIGINT, shutdown)
 
-    poller()
+    start_scrapers()
 
     print('port=' + str(PORT))
-    server.run(host='0.0.0.0', port=PORT)
+    try:
+        server.run(host='0.0.0.0', port=PORT)
+    except:
+        traceback.print_exc()
 
 if __name__=='__main__':
     miniprom()

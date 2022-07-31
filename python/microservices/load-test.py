@@ -89,7 +89,7 @@ def load_test(index):
     while True:
         if not current_thread() in THREADS:
             break
-        with S_CLIENT_TOTAL.labels([endpoint]).time():
+        with S_CLIENT_TOTAL.labels(endpoint).time():
             with S_CLIENT_THREAD.labels(endpoint, 'thread-' + str(index)).time():
                 requests.get(endpoint)
         # average request rate is 1/second.

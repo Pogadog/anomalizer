@@ -4,6 +4,7 @@ import os, time, sys, threading, traceback, gc, psutil, requests, uuid, json, re
 import pandas as pd
 import numpy as np
 from copy import deepcopy
+from collections import Counter
 
 from collections import defaultdict
 from flask import jsonify, request, make_response
@@ -62,6 +63,10 @@ POLL_TIME = 0
 METRIC_TYPES = {}
 METRICS = {}
 
+# keep track of staleness for LABELS, DATAFRAMES, QUERIES and SCATTERGRAMS. if a metric id has not been updated for
+# "DURATION" seconds, then drop it.
+STALEOUT = {}
+
 PROMETHEUS_HEALTHY = False
 INTERNAL_FAILURE = False
 
@@ -107,8 +112,8 @@ def dataframes():
     metric_types = dict( [key, METRIC_TYPES[id_map[key]]] for key in ids if key in ID_MAP)
     status = dict( [key, STATUS[key]] for key in ids if key in STATUS)
 
-    dfs = [[id, df.to_json()] for id, df in DATAFRAMES.copy().items()]
-    dfs = dfs[0:limit]
+    dfs = dict((id, df.to_json()) for id, df in list(DATAFRAMES.copy().items())[0:limit])
+
     return jsonify({'dataframes': dfs, 'id_map': id_map, 'metric_map': metric_map, 'labels': labels, 'stats': stats, 'queries': queries, 'features': features, 'cardinalities': cardinalities, 'metric_types': metric_types, 'status': status})
 
 @app.route('/scattergrams')
@@ -168,6 +173,18 @@ def server_metrics():
     #print(sm)
     return jsonify(sm)
 
+# return a list of known tags, and how many times each tag-key appears in a metric.
+@app.route('/tags')
+def tags():
+    summary = defaultdict(int)
+    details = defaultdict(Counter)
+    for id,labels in LABELS.copy().items():
+        for tags in labels:
+            for tag,value in tags.items():
+                summary[tag] += 1
+                details[tag][value] += 1
+    return jsonify({'summary': summary, 'details': details})
+
 @app.route('/filter', methods=['GET', 'POST'])
 def filter_metrics():
     body = request.json
@@ -181,12 +198,18 @@ def filter_metrics():
     print(result)
     return jsonify(result)
 
-def cleanup(id, metric):
+def cleanup(id):
     try:
+        metric = ID_MAP.get(id)
         #print('cleanup: id=' + id + ', metric=' + metric)
         ID_MAP.pop(id, None)
         METRIC_MAP.pop(metric, None)
         DATAFRAMES.pop(id, None)
+        LABELS.pop(id, None)
+        SCATTERGRAMS.pop(id + '.scatter', None)
+        FEATURES.pop(id, None)
+        QUERIES.pop(id, None)
+        CARDINALITY.pop(id, None)
     except Exception as x:
         traceback.print_exc()
 
@@ -318,7 +341,7 @@ def hockey_stick(metric, dxi, dyi, N=5):
     # return the normalized second and first grafndients
     return p1[1]*xr/yr, p2[1]*xr/yr, l1, l2
 
-def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
+def get_metrics(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
     global INTERNAL_FAILURE
     try:
         INTERNAL_FAILURE = False
@@ -460,6 +483,7 @@ def line_chart(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
         LABELS[id] = labels
         QUERIES[id] = query
         CARDINALITY[id] = cardinality
+        STALEOUT[id] = time.time()+DURATION
 
         return labels, values, query, dfp
     except Exception as x:
@@ -480,22 +504,22 @@ class DistributionFitter:
     def __init__(self):
         self.prototypes = pd.DataFrame()
         self.bins = np.arange(0,N_HIST)
-        # un-scaled normal: range -3..3 for stdev==1, centered at 0
+        # un-scaled normal: range -6..6 for stdev==1, centered at 0
         x = (self.bins-N_HIST//2)/6
-        y = np.exp(-x**2)
-        self.prototypes['gaussian'] = pd.DataFrame(y)
-        y = np.exp(-x**4)
-        self.prototypes['low-variance'] = pd.DataFrame(y)
-        y = np.exp(-np.abs(x))
-        self.prototypes['high-variance'] = pd.DataFrame(y)
+        y = np.exp(-0.5*x**2) # normal-variance
+        self.prototypes['gaussian-0'] = pd.DataFrame(y)
+        y = np.exp(-x**2) # medium-variance
+        self.prototypes['gaussian-1'] = pd.DataFrame(y)
+        y = np.exp(-2*x**2) # low-variance
+        self.prototypes['gaussian-2'] = pd.DataFrame(y)
         x = self.bins/3
         y = np.exp(-x)
         self.prototypes['right-tail'] = pd.DataFrame(y)
         self.prototypes['left-tail'] = pd.DataFrame(np.flipud(y))
 
         x = (self.bins-N_HIST//2)/6
-        y1 = np.exp(-(x-3.3)**4)
-        y2 = np.exp(-(x+3.6)**4)
+        y1 = np.exp(-(x-3.33)**4)
+        y2 = np.exp(-(x+3.66)**4)
         self.prototypes['bimodal']  = pd.DataFrame(y1+y2)
         #import matplotlib.pyplot as plt
         #for k,v in self.prototypes.items():
@@ -540,7 +564,7 @@ def poll_metrics():
             type = METRIC_TYPES.get(metric, '')
             id = METRIC_MAP.get(metric, str(uuid.uuid4()))
             _rate=type=='counter' or type=='summary'
-            labels, values, query, dfp = line_chart(metric, id, type, _rate=type=='counter' or type=='summary', thresh=LIMIT, filter=FILTER)
+            labels, values, query, dfp = get_metrics(metric, id, type, _rate=type == 'counter' or type == 'summary', thresh=LIMIT, filter=FILTER)
             if labels and values:
                 maxlen = max(map(len, values))
                 values = [[0]*(maxlen - len(row))+row for row in values]
@@ -623,12 +647,12 @@ def poll_metrics():
             else:
                 #print('dropping ' + metric)
                 METRICS_DROPPED += 1
-                cleanup(id, metric)
+                cleanup(id)
 
         except Exception as x:
             traceback.print_exc()
 
-            cleanup(id, metric)
+            cleanup(id)
             C_EXCEPTIONS_HANDLED.labels(x.__class__.__name__).inc()
 
     time.sleep(1)
@@ -690,7 +714,15 @@ def resource_monitoring():
         if shared.LOKI:
             metrics_as_logs()
             pass
+        # cleanup stale metrics
+        for id in DATAFRAMES.copy().keys():
+            remain = STALEOUT[id] - time.time()
+            if remain < 0:
+                print('STALEOUT: ' + id)
+                cleanup(id)
+                STALEOUT.pop(id, None)
         time.sleep(10)
+
 
 if __name__ == '__main__':
     try:

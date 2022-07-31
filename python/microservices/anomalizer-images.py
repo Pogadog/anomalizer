@@ -1,4 +1,5 @@
 import os, sys, time, threading, traceback, gc, psutil, requests, uuid, json, re, ast, enum
+from collections import defaultdict
 import pandas as pd
 import numpy as np
 from base64 import b64encode
@@ -42,6 +43,10 @@ ANOMALIZER_IMAGES_HEALTHY = False
 
 IMAGES = {}
 FIGURES = {}
+
+DATAFRAMES = {}
+ID_MAP = {}
+LABELS = {}
 
 app = APIFlask(__name__, title='anomalizer-images')
 
@@ -93,6 +98,82 @@ def images():
 def ids():
     return jsonify(list(IMAGES.keys()))
 
+def draw_df(df, metric):
+    fig = px.line(df, title=metric, color_discrete_sequence=px.colors.qualitative.Bold)
+    if type != 'histogram' and type != 'summary':
+        fig.update_layout(xaxis={'title': ''}, legend_title="tag") #, legend_x=0, legend_y=-0.1+-0.1*len(labels))
+
+    fig.update_layout(template=None, height=400, width=400, autosize=False, font={'size': 11}, title={'x': 0.05, 'xanchor': 'left'})
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=False)
+    fig.update_layout(showlegend=True)
+    return fig
+
+@app.route('/images/grid')
+def images_grid():
+    args = request.args
+    metrics = args.get('metrics', '$')
+    tags = args.get('tags', '.*')
+    grid = {}
+    # we have to get the raw dataframes to be able to build single <metric,tag> plots for the grid.
+    table = defaultdict(defaultdict)
+    metricset = []
+    tagset = []
+    dfs = DATAFRAMES
+    for id,metric in ID_MAP.copy().items():
+        if re.match(metrics, metric):
+            # iterate the tags for the metric, plotting in the grid.  tags are columns of the dataframe.
+            labels = LABELS[id]
+            for index, label in enumerate(labels):
+                tag = json.dumps(label)
+                if re.match(tags, tag):
+                    if not metric in metricset:
+                        metricset += [metric]
+                    if not tag in tagset:
+                        tagset += [tag]
+                    df = dfs[id]
+                    df = df[index]
+                    fig = draw_df(df, metric)
+
+                    table[metric][tag] = to_image(fig)
+    return jsonify({'metrics': list(metricset), 'tags': tagset, 'images': table})
+
+@app.route('/images/grid/html')
+def images_grid_html():
+    _json = images_grid().json
+    # layout an HTML table with rows and columns.
+    page = ''
+    page = '''
+<style>
+table {
+    border-collapse: collapse;
+}
+td, th {
+    border: 1px solid black;
+}
+</style>
+    '''
+    page += '<table>'
+    page += '<tr><th/>'
+    for metric in _json['metrics']:
+        page += '<th>' + metric + '</th>'
+    page += '</tr>'
+    for tag in _json['tags']:
+        page += '<tr>'
+        page += '<td>'
+        for k,v in json.loads(tag).items():
+            page += k + '=' + v + '<br/>'
+        page += '</td>'
+        for metric in _json['metrics']:
+            page += '<td>'
+            img = _json['images'].get(metric, {}).get(tag, '')
+            if img:
+                page += '<img " width="100" height="100" src="' + img + '"/>'
+            page += '</td>'
+        page += '</tr>'
+    page += '</table>'
+    return page
+
 @app.route('/images/html')
 def images_html():
     if not IMAGES:
@@ -140,11 +221,23 @@ def metrics():
     response.mimetype = "text/plain"
     return response
 
+IMG_FMT = 'svg'
+
+import urllib.parse
+
 @S_TO_IMAGE.time() #.labels('images')
 def to_image(fig, id=None):
     start = time.time()
     try:
-        return fig.to_image(format='jpg')
+        img_bytes = fig.to_image(format=IMG_FMT)
+        if IMG_FMT=='svg':
+            encoding = urllib.parse.quote(img_bytes.decode('utf-8'))
+            return "data:image/svg+xml," + encoding
+        else:
+            encoding = b64encode(img_bytes).decode()
+            img_b64 = "data:image/" + IMG_FMT + ";base64," + encoding
+            return img_b64
+
     finally:
         G_TO_IMAGE.set(time.time()-start)
 
@@ -164,22 +257,22 @@ def poll_images():
                 assert dataframes.status_code == 200, 'unable to get engine/dataframes'
                 dataframes = dataframes.json()
                 # in-place translation of incoming dataframes.
-                for dataframe in dataframes['dataframes']:
-                    id, df = dataframe
+                for id, df in dataframes['dataframes'].items():
                     _df = pd.read_json(df, orient='index').T
-                    dataframe[1] = _df
+                    dataframes['dataframes'][id] = _df
+                    DATAFRAMES[id] = _df
+                    ID_MAP[id] = dataframes['id_map'][id]
+                    LABELS[id] = dataframes['labels'][id]
 
                 ANOMALIZER_ENGINE_HEALTHY = True
 
-                for df in dataframes['dataframes']:
-                    id = df[0]
+                for id, dfp in dataframes['dataframes'].items():
                     # sharding algorithm.
                     shard = shared.shard(id, SHARDS)
                     if shard!=SHARD:
                         #print('ignoring ' + id + ' because I_SHARD=' + str(shared.SHARD))
                         continue
                     try:
-                        dfp = df[1]
                         labels = dataframes['labels'][id]
                         id_map = dataframes['id_map']
                         stats = dataframes['stats'][id]
@@ -194,26 +287,17 @@ def poll_images():
                         #print('rendering metric: ' + metric)
                         type = metric_types[id]
 
-                        fig = px.line(dfp, title=metric, color_discrete_sequence=px.colors.qualitative.Bold)
-                        if type != 'histogram' and type != 'summary':
-                            fig.update_layout(xaxis={'title': ''}, legend_title="tag") #, legend_x=0, legend_y=-0.1+-0.1*len(labels))
-
-                        fig.update_layout(template=None, height=400, width=400, autosize=False, font={'size': 11}, title={'x': 0.05, 'xanchor': 'left'})
-                        fig.update_xaxes(showgrid=False)
-                        fig.update_yaxes(showgrid=False)
-                        fig.update_layout(showlegend=True)
+                        fig = draw_df(dfp, metric)
 
                         FIGURES[id] = fig
 
-                        img_bytes = to_image(fig)
-                        encoding = b64encode(img_bytes).decode()
-                        img_b64 = "data:image/jpg;base64," + encoding
+                        img_b64 = to_image(fig)
 
                         IMAGES[id] = {'type': type, 'plot': 'timeseries', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric, 'cardinality': cardinality, 'tags': labels, 'stats': stats}
 
 
                     except Exception as x:
-                        # traceback.print_exc()
+                        traceback.print_exc()
                         print('error polling image: ' + repr(x))
                         pass
 
@@ -252,9 +336,7 @@ def poll_images():
 
                         #print('scattergram=' + metric + '.' + str(i))
 
-                        img_bytes = to_image(fig)
-                        encoding = b64encode(img_bytes).decode()
-                        img_b64 = "data:image/jpg;base64," + encoding
+                        img_b64 = to_image(fig)
 
                         # the following attributes are derived from the time-series image.
                         type = ''

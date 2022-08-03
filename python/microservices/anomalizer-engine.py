@@ -1,6 +1,6 @@
 # polls prometheus and maintains a live-cache of metrics in a form that can be queried with high bandwidth and low
 # latency.
-import os, time, sys, threading, traceback, gc, psutil, requests, uuid, json, re, ast, enum, math
+import os, time, sys, threading, gc, psutil, requests, uuid, json, re, ast, enum, math
 import pandas as pd
 import numpy as np
 from copy import deepcopy
@@ -9,6 +9,7 @@ from collections import Counter
 from collections import defaultdict
 from flask import jsonify, request, make_response
 from apiflask import APIFlask, Schema
+from prometheus_flask_exporter import PrometheusMetrics
 from apiflask.fields import Integer, String, Float
 from prometheus_client import Histogram, Gauge, generate_latest
 
@@ -29,6 +30,7 @@ import logging
 logging.getLogger("werkzeug").disabled = True
 
 app = APIFlask(__name__, title='anomalizer-engine')
+metrics = PrometheusMetrics(app)
 
 PORT = int(os.environ.get('ANOMALIZER_ENGINE_PORT', 8060))
 
@@ -39,8 +41,10 @@ INCREASE_THRESH = 0.5
 DECREASE_THRESH = -0.25
 
 LIMIT = float(os.environ.get('LIMIT', shared.LIMITS[-2]))
-FILTER = ''
-INVERT = False
+FILTER = '_created|_count'
+INVERT = True
+FILTER2 = ''
+INVERT2 = False
 
 PROMETHEUS = os.environ.get('PROMETHEUS', 'localhost:9090')
 PROMETHEUS = 'http://' + PROMETHEUS
@@ -63,6 +67,20 @@ POLL_TIME = 0
 METRIC_TYPES = {}
 METRICS = {}
 
+import yaml
+try:
+    with open('anomalizer-engine.yaml') as file:
+        CONFIG = yaml.safe_load(file)
+
+    EXTRA_METRICS = CONFIG['extra-metrics']
+    METRIC_TYPE_MAP = CONFIG['metric-type-map']
+except:
+    pass
+if not EXTRA_METRICS:
+    EXTRA_METRICS = {}
+if not METRIC_TYPE_MAP:
+    METRIC_TYPE_MAP = {}
+
 # keep track of staleness for LABELS, DATAFRAMES, QUERIES and SCATTERGRAMS. if a metric id has not been updated for
 # "DURATION" seconds, then drop it.
 STALEOUT = {}
@@ -70,7 +88,7 @@ STALEOUT = {}
 PROMETHEUS_HEALTHY = False
 INTERNAL_FAILURE = False
 
-PROMETHEUS_TIMEOUT=1
+PROMETHEUS_TIMEOUT=5
 
 START_TIME = time.time()
 
@@ -100,7 +118,7 @@ def features():
 def dataframes():
     # check headers for documentation call (/docs), if so just return 1 items to avoid overload.
     headers = request.headers
-    limit = 1 if 'docs' in headers.environ.get('HTTP_REFERER', '') else -1
+    limit = 1 if 'docs' in headers.environ.get('HTTP_REFERER', '') else len(DATAFRAMES)
     ids = list(DATAFRAMES.keys())[0:limit]
     id_map = dict( ((key, ID_MAP[key]) for key in ids if key in ID_MAP))
     metric_map = dict([(ID_MAP[id], id) for id in ids if id in ID_MAP])
@@ -149,6 +167,10 @@ def dataframes_ids(ids):
 def ids():
     return jsonify(list(ID_MAP.keys()))
 
+@app.route('/metric_types')
+def metric_types():
+    return jsonify(METRIC_TYPES)
+
 @app.route('/metric_map')
 def metric_map():
     return jsonify(METRIC_MAP)
@@ -176,26 +198,33 @@ def server_metrics():
 # return a list of known tags, and how many times each tag-key appears in a metric.
 @app.route('/tags')
 def tags():
-    summary = defaultdict(int)
-    details = defaultdict(Counter)
+    tag_summary = defaultdict(int)
+    tag_details = defaultdict(Counter)
+    metric_summary = defaultdict(Counter)
+    metric_details = defaultdict(Counter)
+
     for id,labels in LABELS.copy().items():
+        metric = ID_MAP[id]
         for tags in labels:
             for tag,value in tags.items():
-                summary[tag] += 1
-                details[tag][value] += 1
-    return jsonify({'summary': summary, 'details': details})
+                tag_summary[tag] += 1
+                tag_details[tag][value] += 1
+                metric_summary[metric][tag] += 1
+                metric_details[tag][metric] += 1
+    return jsonify({'tag-summary': tag_summary, 'tag-details': tag_details, 'metric-summary': metric_summary, 'metric-details': metric_details})
 
 @app.route('/filter', methods=['GET', 'POST'])
 def filter_metrics():
     body = request.json
     if body:
-        global FILTER, INVERT, LIMIT
-        FILTER = body.get('query', '')
-        INVERT = body.get('invert', False)
+        global FILTER, INVERT, LIMIT, FILTER2, INVERT2
+        FILTER = body.get('query', FILTER)
+        INVERT = body.get('invert', INVERT)
+        FILTER2 = body.get('query2', FILTER2)
+        INVERT2 = body.get('invert2', INVERT2)
         # TODO: reflect back to UI, until then, fix at [-1].
         LIMIT = float(body.get('limit', LIMIT))
-    result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT}
-    print(result)
+    result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2}
     return jsonify(result)
 
 def cleanup(id):
@@ -211,7 +240,7 @@ def cleanup(id):
         QUERIES.pop(id, None)
         CARDINALITY.pop(id, None)
     except Exception as x:
-        traceback.print_exc()
+        shared.trace(x)
 
 def poller():
     print('poller starting...')
@@ -221,7 +250,7 @@ def poller():
         try:
             poll_metrics()
         except Exception as x:
-            traceback.print_exc()
+            shared.trace(x)
             C_EXCEPTIONS_HANDLED.labels(x.__class__.__name__).inc()
 
         finally:
@@ -244,24 +273,36 @@ def _metadata():
 
 def refresh_metrics():
     try:
-        global METRICS
+        global METRICS, DATAFRAMES
         _metadata()
         print('fetching ' + META)
         result = requests.get(META)
         _json = result.json()
         METRICS = _json['data']
+        if EXTRA_METRICS:
+            METRICS.update(EXTRA_METRICS)
+        for e in EXTRA_METRICS:
+            METRIC_TYPES[e] = EXTRA_METRICS[e][0].get('type')
         print('#METRICS=' + str(len(METRICS)) + ', #DATAFRAMES=' + str(len(DATAFRAMES)))
         # synthetic metrics for histogram and summary
         synth = {}
         for k, metric in METRICS.copy().items():
             type = metric[0]['type']
+            # apply the metric type map loaded from anomalizer.yaml
+            for key in METRIC_TYPE_MAP:
+                if re.match(key, k):
+                    _from, _to = METRIC_TYPE_MAP[key].split('=')
+                    if re.match(_from, type):
+                        METRIC_TYPES[k] = _to
+                        metric[0]['type'] = _to
+                        break
             if type=='summary' or type=='histogram':
                 synth.update({k + '_count': [{'type': 'counter'}]})
                 METRIC_TYPES[k + '_count'] = 'counter'
         METRICS.update(synth)
         #print('METRICS=' + str(METRICS))
     except Exception as x:
-        print('error refreshing metrics: ' + str(x), file=sys.stderr)
+        shared.trace(x, msg='error refreshing metrics')
         time.sleep(5)
 
 
@@ -276,7 +317,7 @@ def get_prometheus(metric, _rate, type, step):
         rate, agg = '', ''
         if _rate or type == 'counter':
             rate = 'rate'
-            agg = '[1m]'
+            agg = '[5m]'
 
         PROM = PROMETHEUS + '/api/v1/query_range?query=' + rate + '(' + metric + agg + ')&start=' + str(start) + '&end=' + str(now) + '&step=' + str(step)
 
@@ -341,7 +382,7 @@ def hockey_stick(metric, dxi, dyi, N=5):
     # return the normalized second and first grafndients
     return p1[1]*xr/yr, p2[1]*xr/yr, l1, l2
 
-def get_metrics(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
+def get_metrics(metric, id, type=None, _rate=False):
     global INTERNAL_FAILURE
     try:
         INTERNAL_FAILURE = False
@@ -350,12 +391,17 @@ def get_metrics(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
             return None, None, None, None
 
         # add in tags to the match. TODO: align this with the match strings on the UI
-        labels, values, query = get_prometheus(metric, _rate, type, 60*60//3)
+        labels, values, query = get_prometheus(metric, _rate, type, STEP*20)
         cardinality = 'high' if len(labels) > 100 else 'medium' if len(labels) > 10 else 'low'
         match = metric + json.dumps({'tags': labels}) + ',' + type + ',' + json.dumps({'cardinality': cardinality})
-        if (re.match('.*(' + filter + ').*', match)==None) != INVERT:
-            return None, None, None, None
-        if thresh:
+        if FILTER:
+            if (re.match('.*(' + FILTER + ').*', match)==None) != INVERT:
+                return None, None, None, None
+        if FILTER2:
+            if (re.match('.*(' + FILTER2 + ').*', match)==None) != INVERT2:
+                return None, None, None, None
+        #print('rendering metric=' + match)
+        if LIMIT:
             # big step first to filter.
             if not values:
                 # try _sum and _count with rate, since python does not do quantiles properly.
@@ -367,7 +413,7 @@ def get_metrics(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
             values = [[0]*(maxlen - len(row))+row for row in values]
             dfp = pd.DataFrame(columns= np.arange(len(labels)).T, data=np.array(values).T)
             std = dfp.std(ddof=0).sum()
-            if std < thresh:
+            if std < LIMIT:
                 #print('metric; ' + metric + ' is not interesting, std=' + str(std) + '...')
                 return None, None, None, None
 
@@ -396,7 +442,7 @@ def get_metrics(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                 maxdy = dy.max().max()
                 count = 0
                 for i in range(dx.shape[0]):
-                    if dy.loc[i].max() > maxdy*0.2 and dy.loc[i].std(ddof=0) > thresh:
+                    if dy.loc[i].max() > maxdy*0.2 and dy.loc[i].std(ddof=0) > LIMIT:
                         # top 80% of scattergrams by value, limit 20. TODO: sort.
                         count += 1
                         if count > 20:
@@ -435,9 +481,8 @@ def get_metrics(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
                                     features.update({'hockeystick':  {'decreasing': ratio, 'p1': p1, 'p2':p2}})
 
                             except Exception as x:
-                                # traceback.print_exc()
-                                print('problem computing hockey-stick: ' + metric + '.' + str(i) + ': ' + repr(x))
-
+                                shared.trace(x)
+                                print('problem computing hockey-stick: ' + metric + '.' + str(i), file=sys.stderr)
 
                         _mean = dyi.mean()
                         _max = dyi.max()
@@ -487,8 +532,8 @@ def get_metrics(metric, id, type=None, _rate=False, thresh=0.0001, filter=''):
 
         return labels, values, query, dfp
     except Exception as x:
-        traceback.print_exc()
-        print('error collecting DATAFRAME: ' + metric + '.' + id + ': ' + str(x), file=sys.stderr)
+        shared.trace(x)
+        print('error collecting DATAFRAME: ' + metric + '.' + id, file=sys.stderr)
         C_EXCEPTIONS_HANDLED.labels(x.__class__.__name__).inc()
         INTERNAL_FAILURE = True
         time.sleep(1)
@@ -498,6 +543,8 @@ METRICS_PROCESSED = 0
 METRICS_AVAILABLE = 0
 METRICS_DROPPED = 0
 METRICS_TOTAL_TS = 0
+METRIC_TAGS=defaultdict(Counter)
+METRIC_SUMMARY=Counter()
 
 N_HIST = 40
 class DistributionFitter:
@@ -562,9 +609,12 @@ def poll_metrics():
         id = None
         try:
             type = METRIC_TYPES.get(metric, '')
+            if shared.args.verbose:
+                print('poll-metrics: ' + metric + ': ' + type)
             id = METRIC_MAP.get(metric, str(uuid.uuid4()))
             _rate=type=='counter' or type=='summary'
-            labels, values, query, dfp = get_metrics(metric, id, type, _rate=type == 'counter' or type == 'summary', thresh=LIMIT, filter=FILTER)
+            query = dict(METRICS[metric][0]).get('query', metric)
+            labels, values, query, dfp = get_metrics(query, id, type, _rate=type == 'counter' or type == 'summary')
             if labels and values:
                 maxlen = max(map(len, values))
                 values = [[0]*(maxlen - len(row))+row for row in values]
@@ -636,8 +686,6 @@ def poll_metrics():
                         if snr > 0 and rstd < 0.4 and snr < 2: # normal and noisy.
                             features.update({'noisy': {'snr': snr}})
 
-                        DATAFRAMES[id] = dfp
-
                         stats = {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': mean, 'std': std, 'spike': spike, 'snr': snr}
                         stats = shared.no_nan(stats)
 
@@ -650,11 +698,10 @@ def poll_metrics():
                 cleanup(id)
 
         except Exception as x:
-            traceback.print_exc()
+            shared.trace(x)
 
             cleanup(id)
             C_EXCEPTIONS_HANDLED.labels(x.__class__.__name__).inc()
-
     time.sleep(1)
 
 def startup():
@@ -698,8 +745,8 @@ def metrics_as_logs():
                     # issue these metrics as INFO level to get them into the main
                     # INFO pipeline.
                     log_metrics.log(logging.INFO, msg=json.dumps(blob))
-        except:
-            traceback.print_exc()
+        except Exception as x:
+            shared.trace(x)
 
 def resource_monitoring():
     while True:

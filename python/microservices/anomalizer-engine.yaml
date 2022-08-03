@@ -1,0 +1,9 @@
+extra-metrics:
+  memory_percent:
+    - query: sum(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)*100
+      help: Memory Usage %
+      type: gauge
+
+# for node metrics, map unknown to counter.
+metric-type-map:
+  node.*: unknown|gauge=counter

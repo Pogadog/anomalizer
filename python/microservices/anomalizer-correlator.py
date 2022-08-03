@@ -1,4 +1,4 @@
-import os, time, threading, traceback, gc, psutil, requests, uuid, json, re, ast, enum
+import os, time, threading, gc, psutil, requests, uuid, json, re, ast, enum
 import sys
 
 import pandas as pd
@@ -8,6 +8,7 @@ import functools
 
 from flask import jsonify, request, make_response
 from apiflask import APIFlask, Schema
+from prometheus_flask_exporter import PrometheusMetrics
 from prometheus_client import Summary, Histogram, Counter, Gauge, generate_latest
 
 import plotly.express as px
@@ -26,6 +27,7 @@ ANOMALIZER_ENGINE = os.environ.get('ANOMALIZER_ENGINE', 'http://localhost:8060')
 LIMIT = shared.LIMITS[-2]
 
 app = APIFlask(__name__, title='anomalizer-correlator')
+from prometheus_flask_exporter import PrometheusMetrics
 
 PORT = int(os.environ.get('ANOMALIZER_CORRELATOR_PORT', C_SHARD*10000+8062))
 N_CORR = 8
@@ -90,14 +92,12 @@ def poll_dataframes():
                 dataframes = result.json()['dataframes']
                 id_map = result.json()['id_map']
 
-                for dataframe in dataframes:
-                    _id, df = dataframe
+                for _id, df in dataframes.items():
                     dataframe = pd.read_json(df, orient='index').T
                     DATAFRAMES[_id] = dataframe
                     ID_MAP[_id] = id_map[_id]
             except Exception as x:
-                #traceback.print_exc()
-                print(repr(x), sys.stderr)
+                shared.trace(x)
                 ANOMALIZER_ENGINE_HEALTHY = False
         time.sleep(1)
 
@@ -113,8 +113,8 @@ def correlate_all_poller():
         try:
             all = correlate('all', False)
             #print('all: ' + str([(c['metrics']) for c in all.get('correlates', [])]))
-        except:
-            traceback.print_exc()
+        except Exception as x:
+            shared.trace(x)
         time.sleep(1)
 
 
@@ -251,8 +251,7 @@ def correlate(id, negative):
             return {'status': 'success', 'elapsed': elapsed, 'correlates': ordered, 'metrics': len(DATAFRAMES), 'results': len(ordered)}
 
         except Exception as x:
-            traceback.print_exc()
-            print('correlate failed: ' + repr(x), sys.stderr)
+            shared.trace(x)
             return {'status': 'failed', 'exception': str(x)}
 
 @app.route('/metrics')

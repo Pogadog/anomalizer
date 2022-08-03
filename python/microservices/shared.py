@@ -1,10 +1,16 @@
 import math
 import socket
+import traceback
 
 import psutil, os, sys, json
 from prometheus_client import Summary, Histogram, Counter, Gauge, generate_latest
 import uuid
 from urllib.parse import urlparse
+
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--verbose', action='store_true', help='show verbose messages while running', default=os.environ.get('VERBOSE', 'False')=='True')
+args = parser.parse_known_args()[0]
 
 LIMITS = [0.1, 0.01, 0.001, 0.0001, 0.00001, 0.0000001, 0.00000001, 0.000000001, 0]
 
@@ -91,6 +97,13 @@ def no_nan(dict):
 def no_nan_vec(vec):
     vec = [0 if (math.isnan(v) or math.isinf(v)) else v for v in vec]
     return vec
+
+def trace(x, trace=True, msg=''):
+    if trace and os.environ.get('TRACEBACK') == 'True':
+        traceback.print_exc()
+    if not msg:
+        msg = 'exception: '
+    print(msg + repr(x), file=sys.stderr)
 
 # Prometheus needs a simpler timer than Histogram & Summary.  Let's make one.
 class Timer:
@@ -224,8 +237,7 @@ def hook_logging(name):
     if os.environ.get('BOOTSTRAP_SERVERS'):
         log.addHandler(confluent)
     sys.stdout = LoggerWriter(log.info)
-    print(name + ': sys.stdout')
     sys.stderr = LoggerWriter(log.error)
-    print(name + ': sys.stderr', file=sys.stderr)
+    print(name + ': sys.stdout and sys.stderr are redirected to logging')
 
 # end

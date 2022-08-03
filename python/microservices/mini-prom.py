@@ -92,47 +92,51 @@ def metadata():
 @server.route('/api/v1/query_range')
 def query_range():
 
-    blob = {
-        'status': 'success',
-        'data': {
-            'resultType': 'matrix',
-            'result': []
+    try:
+        blob = {
+            'status': 'success',
+            'data': {
+                'resultType': 'matrix',
+                'result': []
+            }
         }
-    }
-    query = unquote(request.query_string.decode())
-    split = re.split(r'[()]', query)
-    if split[0].endswith('rate'):
-        metric, rate = split[1].split('[')
-        rate = rate.split(']')[0]
-        rate, unit = int(rate[0:-1]), rate[-1]
-        if unit=='m':
-            rate *= 60
-    else:
-        metric = split[1]
-        rate = None
+        query = unquote(request.query_string.decode())
+        split = re.split(r'[()]', query)
+        if split[0].endswith('rate'):
+            metric, rate = split[1].split('[')
+            rate = rate.split(']')[0]
+            rate, unit = int(rate[0:-1]), rate[-1]
+            if unit=='m':
+                rate *= 60
+        else:
+            metric = split[1]
+            rate = None
 
-    current = METRICS_BY_NAME[CURRENT]
-    family = METRICS_FAMILY.get(metric, {})
-    if family.get('type') == 'counter':
-        metric += '_total'
-    m = current['metrics'].get(metric)
-    result = blob['data']['result']
-    if m:
-        for tag in m:
-            values = [[_m[0], str(_m[1])] for _m in m[tag]]
-            if values and rate and not (metric.endswith('_count')):
-                dvalues = pd.DataFrame(values, dtype=float)
-                diff = dvalues.diff().clip(lower=0)
-                diff = diff.rolling(rate//60).mean() # TODO: read the time interval from the metric (or scrape).
-                diff = diff.fillna(0)
-                dvalues.iloc[:,1:] = diff.iloc[:,1:]
-                values = dvalues.values.tolist()
+        current = METRICS_BY_NAME[CURRENT]
+        family = METRICS_FAMILY.get(metric, {})
+        if family.get('type') == 'counter':
+            metric += '_total'
+        m = current['metrics'].get(metric)
+        result = blob['data']['result']
+        if m:
+            for tag in m:
+                values = [[_m[0], str(_m[1])] for _m in m[tag]]
+                if values and rate and not (metric.endswith('_count')):
+                    dvalues = pd.DataFrame(values, dtype=float)
+                    diff = dvalues.diff().clip(lower=0)
+                    diff = diff.rolling(rate//60).mean() # TODO: read the time interval from the metric (or scrape).
+                    diff = diff.fillna(0)
+                    dvalues.iloc[:,1:] = diff.iloc[:,1:]
+                    values = dvalues.values.tolist()
 
-            tags = dict([x.split('=') for x in ast.literal_eval(tag)])
-            _metric = {'__name__': metric}
-            _metric.update(tags)
-            result += [{'metric': _metric, 'values': values}]
-    return jsonify(blob)
+                tags = dict([x.split('=') for x in ast.literal_eval(tag)])
+                _metric = {'__name__': metric}
+                _metric.update(tags)
+                result += [{'metric': _metric, 'values': values}]
+        return jsonify(blob)
+    except Exception as x:
+        shared.trace(x, msg='unable to process prometheus query: ' + query)
+        return make_response('unable to process promerheus query: ' + query, 500)
 
 PATH = os.environ.get('MICROSERVICES', '')
 print('MICROSERVICES=' + PATH)
@@ -197,8 +201,9 @@ def miniprom():
                         #for name in METRICS_BY_NAME[CURRENT]['metrics']:
                         #    print(name + ': ' + str(METRICS_BY_NAME[CURRENT]['metrics'][name]))
                     except Exception as x:
+                        # shared.trace(x, msg='scrape exception')
                         # traceback.print_exc()
-                        print('scrape exception: ' + str(x), sys.stderr)
+                        pass
             time.sleep(scrape_interval)
 
     import threading, pickle

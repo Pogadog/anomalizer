@@ -1,4 +1,4 @@
-import os, sys, time, threading, traceback, gc, psutil, requests, uuid, json, re, ast, enum
+import os, sys, time, threading, gc, psutil, requests, uuid, json, re, ast, enum
 from collections import defaultdict
 import pandas as pd
 import numpy as np
@@ -30,6 +30,8 @@ S_POLL_METRICS = shared.S_POLL_METRICS.labels('images')
 
 from flask import jsonify, request, make_response
 from apiflask import APIFlask, Schema
+from prometheus_flask_exporter import PrometheusMetrics
+
 from prometheus_client import Summary, Histogram, Counter, Gauge, generate_latest
 
 import logging
@@ -48,7 +50,12 @@ DATAFRAMES = {}
 ID_MAP = {}
 LABELS = {}
 
+# cache of grid images.
+GRID_IMAGES = defaultdict(defaultdict)
+GRID_EXPIRES = 300 # seconds
+
 app = APIFlask(__name__, title='anomalizer-images')
+merics = PrometheusMetrics(app)
 
 PORT = int(os.environ.get('ANOMALIZER_IMAGES_PORT', SHARD*10000+8061))
 
@@ -109,37 +116,55 @@ def draw_df(df, metric):
     fig.update_layout(showlegend=True)
     return fig
 
+def to_kv(tag):
+    result = ''
+    for k,v in json.loads(tag).items():
+        result += k + '=' + v + '\n'
+    return result
+
 @app.route('/images/grid')
 def images_grid():
     args = request.args
-    metrics = args.get('metrics', '$')
-    tags = args.get('tags', '.*')
-    grid = {}
+    metrics = '.*' + args.get('metrics', '') + '.*'
+    tags = '.*' + args.get('tags', '') + '.*'
+    not_metrics = '.*' + args.get('not_metrics', '^$') + '.*'
+    not_tags = '.*' + args.get('not_tags', '^$') + '.*'
     # we have to get the raw dataframes to be able to build single <metric,tag> plots for the grid.
     table = defaultdict(defaultdict)
     metricset = []
     tagset = []
     dfs = DATAFRAMES
     for id,metric in ID_MAP.copy().items():
-        if re.match(metrics, metric):
-            # iterate the tags for the metric, plotting in the grid.  tags are columns of the dataframe.
-            labels = LABELS[id]
-            for index, label in enumerate(labels):
-                tag = json.dumps(label)
-                if re.match(tags, tag):
-                    if not metric in metricset:
-                        metricset += [metric]
-                    if not tag in tagset:
-                        tagset += [tag]
-                    df = dfs[id]
-                    df = df[index]
-                    fig = draw_df(df, metric)
-
-                    table[metric][tag] = to_image(fig)
+        try:
+            if not re.match(not_metrics, metric) and re.match(metrics, metric):
+                # iterate the tags for the metric, plotting in the grid.  tags are columns of the dataframe.
+                labels = LABELS[id]
+                for index, label in enumerate(labels):
+                    tag = json.dumps(label)
+                    if not re.match(not_tags, tag) and re.match(tags, tag):
+                        print('images/grid: ' + metric + '|' + str(label))
+                        if not metric in metricset:
+                            metricset += [metric]
+                        if not tag in tagset:
+                            tagset += [tag]
+                        gi = GRID_IMAGES.get(metric, {}).get(tag, (None, None, None, None))
+                        if gi[3]:
+                            table[metric][tag] = gi[3]
+                            gi[2] = time.time() + GRID_EXPIRES # refresh the expiration time
+                        else:
+                            df = dfs[id]
+                            df = df[index]
+                            fig = draw_df(df, metric)
+                            table[metric][tag] = to_image(fig)
+                            GRID_IMAGES[metric][tag] = [id, index, time.time()+GRID_EXPIRES, table[metric][tag]]
+        except Exception as x:
+            shared.trace(x)
     return jsonify({'metrics': list(metricset), 'tags': tagset, 'images': table})
 
 @app.route('/images/grid/html')
 def images_grid_html():
+    args = request.args
+    transpose = args.get('transpose', None) != None
     _json = images_grid().json
     # layout an HTML table with rows and columns.
     page = ''
@@ -154,28 +179,47 @@ td, th {
 </style>
     '''
     page += '<table>'
-    page += '<tr><th/>'
-    for metric in _json['metrics']:
-        page += '<th>' + metric + '</th>'
-    page += '</tr>'
-    for tag in _json['tags']:
-        page += '<tr>'
-        page += '<td>'
-        for k,v in json.loads(tag).items():
-            page += k + '=' + v + '<br/>'
-        page += '</td>'
+    if not transpose:
+        page += '<tr>tags \ metrics<th/>'
         for metric in _json['metrics']:
-            page += '<td>'
-            img = _json['images'].get(metric, {}).get(tag, '')
-            if img:
-                page += '<img " width="100" height="100" src="' + img + '"/>'
-            page += '</td>'
+            page += '<td>' + metric + '</td>'
         page += '</tr>'
+        for tag in _json['tags']:
+            page += '<tr>'
+            page += '<td>'
+            page += to_kv(tag).replace('\n', '<br/>')
+            page += '</td>'
+            for metric in _json['metrics']:
+                page += '<td>'
+                print('image/grid/html: ' + metric + ',' + tag)
+                img = _json['images'].get(metric, {}).get(tag, '')
+                if img:
+                    page += '<img " width="100" height="100" src="' + img + '"/>'
+                page += '</td>'
+            page += '</tr>'
+    else:
+        page += '<tr>metrics \ tags<th/>'
+        for tag in _json['tags']:
+            page += '<td>' + to_kv(tag).replace('\n', '<br/>') + '</td  >'
+        for metric in _json['metrics']:
+            page += '<tr>'
+            page += '<td>'
+            page += metric
+            page += '</td>'
+            for tag in _json['tags']:
+                page += '<td>'
+                img = _json['images'].get(metric, {}).get(tag, '')
+                print('image/grid/html: ' + metric + ',' + tag)
+                if img:
+                    page += '<img " width="100" height="100" src="' + img + '"/>'
+                page += '</td>'
+            page += '</tr>'
     page += '</table>'
     return page
 
 @app.route('/images/html')
 def images_html():
+    args = request.args # ?plot=timeseries|scatter (regex)
     if not IMAGES:
         return 'nothing to see here yet, still gathering data?'
     '''
@@ -206,7 +250,8 @@ def images_html():
     page = ''
     page += '<div">'
     for image in images:
-        page += '<img title="' + image['status'] + ', ' + str(image['stats']) + ', ' + str(image['features']) + '" width="170" height="170" src="' + image['img'] + '"/>'
+        if re.match('.*' + args.get('plot', '') + '.*', image['plot']):
+            page += '<img title="' + image['status'] + ', ' + str(image['stats']) + ', ' + str(image['features']) + '" width="170" height="170" src="' + image['img'] + '"/>'
     page += '</div>'
 
     return page
@@ -284,8 +329,9 @@ def poll_images():
 
                         metric = id_map[id]
 
-                        #print('rendering metric: ' + metric)
                         type = metric_types[id]
+                        if shared.args.verbose:
+                            print('rendering metric: ' + metric + ': ' + type)
 
                         fig = draw_df(dfp, metric)
 
@@ -297,9 +343,7 @@ def poll_images():
 
 
                     except Exception as x:
-                        traceback.print_exc()
-                        print('error polling image: ' + repr(x))
-                        pass
+                        shared.trace(x, trace=False, msg='error polling image: ')
 
                 # scattergrams.
                 result = requests.get(ANOMALIZER_ENGINE + '/scattergrams')
@@ -350,9 +394,24 @@ def poll_images():
 
                         IMAGES[scat_id + '.' + str(i)] = {'type': type, 'plot': 'scatter', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric, 'cardinality': cardinality, 'tags': labels, 'stats': stats}
 
+                # Grid images
+                dfs = DATAFRAMES
+                for metric in GRID_IMAGES.copy():
+                    for tag in GRID_IMAGES[metric].copy():
+                        print('updating grid-image: ' + metric + '|' + tag)
+                        id, index, expires, img = GRID_IMAGES[metric][tag]
+                        if time.time() > expires:
+                            GRID_IMAGES[metric].pop(tag, None)
+                            GRID_IMAGES.pop(metric, None)
+                        else:
+                            # refresh grid image.
+                            df = dfs[id]
+                            df = df[index]
+                            fig = draw_df(df, metric)
+                            GRID_IMAGES[metric][tag] = [id, index, time.time()+GRID_EXPIRES, to_image(fig)]
+
             except Exception as x:
-                #traceback.print_exc()
-                print(repr(x), sys.stderr)
+                shared.trace(x)
                 ANOMALIZER_ENGINE_HEALTHY = False
             shared.G_POLL_METRICS.labels('images').set(time.time()-start)
             G_NUM_IMAGES.set(len(IMAGES))
@@ -369,9 +428,12 @@ def cleanup():
                 id = id.split('.')[0]
                 if not id in ids:
                     #print('cleaning image=' + id)
-                    del IMAGES[id]
+                    IMAGES.pop(id, None)
+                    ID_MAP.pop(id, None)
+                    DATAFRAMES.pop(id, None)
+                    LABELS.pop(id, None)
         except Exception as x:
-            print(repr(x), sys.stderr)
+            shared.trace(x)
         time.sleep(10)
 
 def startup():

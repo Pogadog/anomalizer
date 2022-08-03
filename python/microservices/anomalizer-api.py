@@ -4,11 +4,11 @@
 
 import os, json, random, re
 import sys
-import traceback
 
 from flask import Flask, jsonify, request, make_response, send_from_directory
 
 from apiflask import APIFlask, Schema
+from prometheus_flask_exporter import PrometheusMetrics
 from apiflask.fields import String, Float, Boolean
 from health import Health
 import shared
@@ -77,6 +77,7 @@ def _proxy(*args, **kwargs):
 
 
 app = APIFlask(__name__, title='anomalizer-api', static_folder='web-build')
+metrics = PrometheusMetrics(app)
 
 PORT = int(os.environ.get('ANOMALIZER_API_PORT', 8056))
 
@@ -159,6 +160,8 @@ def features():
 class FilterInSchema(Schema):
     query = String(required=False)
     invert = Boolean(required=False)
+    query2 = String(required=False)
+    invert2 = Boolean(required=False)
     limit = Float(required=False)
 
 @app.post('/filter')
@@ -244,6 +247,10 @@ def proxy(path):
         return result
     # most general case e.g. /proxy/anomalizer-engine-0/...
     return _proxy()
+
+@app.route('/tags')
+def tags():
+    return _proxy(ANOMALIZER_ENGINE)
 
 if __name__ == '__main__':
     try:

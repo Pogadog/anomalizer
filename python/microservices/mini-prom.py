@@ -5,7 +5,7 @@
 #   /metrics -- current metrics gathered from other prometheus (proxy)
 #   /api/v1/metadata -- metadata about metrics
 #   /api/v1/query_range?query=<metric>>&start=<start>>&end=<end>&step=<step> -- time-series for metrics.
-import json, sys
+import json, sys, os
 import traceback
 
 import shared
@@ -146,14 +146,14 @@ def write_to_cloud (upload):
     print('write_to_cloud: ' + upload)
     client = storage.Client()
     bucket = client.get_bucket( 'anomalizer-demo.appspot.com' )
-    blob = bucket.blob('/mini-prom/' + upload)
+    blob = bucket.blob('/mini-prom/' + os.path.basename(upload))
     blob.upload_from_filename(upload)
 
 def read_from_cloud (name):
     print('read_from_cloud: ' + name)
     client = storage.Client()
     bucket = client.get_bucket( 'anomalizer-demo.appspot.com' )
-    blob = bucket.blob('/mini-prom/' + name)
+    blob = bucket.blob('/mini-prom/' + os.path.basename(name))
     if blob.exists():
         file = open(name, 'wb')
         with file:

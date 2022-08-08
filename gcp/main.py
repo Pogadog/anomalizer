@@ -68,7 +68,7 @@ def _proxy(*args, **kwargs):
 CONTEXT = ''
 
 @app.route('/', defaults={'u_path': ''}, methods=['GET', 'POST'])
-@app.route('/<path:u_path>')
+@app.route('/<path:u_path>', methods=['GET', 'POST'])
 def catch_all(u_path):
     if u_path != "" and os.path.exists(app.static_folder + '/' + u_path):
         return send_from_directory(app.static_folder, u_path)

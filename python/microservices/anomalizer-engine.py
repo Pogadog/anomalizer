@@ -67,13 +67,15 @@ POLL_TIME = 0
 METRIC_TYPES = {}
 METRICS = {}
 
+EXTRA_METRICS = {}
+METRIC_TYPE_MAP = {}
 import yaml
 try:
     with open('anomalizer-engine.yaml') as file:
         CONFIG = yaml.safe_load(file)
 
-    EXTRA_METRICS = CONFIG['extra-metrics']
-    METRIC_TYPE_MAP = CONFIG['metric-type-map']
+    EXTRA_METRICS = CONFIG.get('extra-metrics', {})
+    METRIC_TYPE_MAP = CONFIG.get('metric-type-map', {})
 except:
     pass
 if not EXTRA_METRICS:

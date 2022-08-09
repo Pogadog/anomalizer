@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f ../anomalizer-compose-microservices.yaml
+    kompose.version: 1.26.1 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: anomalizer-correlator
+  name: anomalizer-correlator
+spec:
+  ports:
+    - name: "8062"
+      port: 8062
+      targetPort: 8062
+  selector:
+    io.kompose.service: anomalizer-correlator
+status:
+  loadBalancer: {}

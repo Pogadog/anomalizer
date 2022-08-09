@@ -136,7 +136,7 @@ def query_range():
         return jsonify(blob)
     except Exception as x:
         shared.trace(x, msg='unable to process prometheus query: ' + query)
-        return make_response('unable to process promerheus query: ' + query, 500)
+        return make_response({'status': 'failed', 'message': 'unable to process prometheus query: ' + query}, 500)
 
 PATH = os.environ.get('MICROSERVICES', '')
 print('MICROSERVICES=' + PATH)

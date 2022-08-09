@@ -29,7 +29,7 @@ LIMIT = shared.LIMITS[-2]
 app = APIFlask(__name__, title='anomalizer-correlator')
 from prometheus_flask_exporter import PrometheusMetrics
 
-PORT = int(os.environ.get('ANOMALIZER_CORRELATOR_PORT', C_SHARD*10000+8062))
+PORT = int(os.environ.get('ANOMALIZER_CORRELATOR_PORT', str(C_SHARD*10000+8062)))
 N_CORR = 8
 
 S_CORRELATE = Summary('anomalizer_correlation_time_seconds', 'time to compute correlation', ('mode',))

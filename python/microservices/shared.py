@@ -156,9 +156,7 @@ class SafeLokiHandler(logging_loki.LokiHandler):
         # super().handleError(record)
         pass
     def emit(self, record):
-        # dogfood: keep a counter of logs by level and log name.
         super().emit(record)
-        C_LOG_MESSAGE.labels(record.levelname, record.name).inc(1)
 
 if LOKI:
     loki_handler = SafeLokiHandler(
@@ -226,6 +224,14 @@ if os.environ.get('BOOTSTRAP_SERVERS'):
                                  sasl_username=os.environ.get('SASL_USERNAME'),
                                  sasl_password=os.environ.get('SASL_PASSWORD'))
 
+class CountHandler(logging.Handler):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+    def emit(self, record: logging.LogRecord) -> None:
+        # dogfood: keep a counter of logs by level and log name.
+        C_LOG_MESSAGE.labels(record.levelname, record.name).inc(1)
+
+
 # Hook process stdout & stderr to a logger, based on service name.
 def hook_logging(name):
     logging.basicConfig(level=logging.INFO)
@@ -233,6 +239,8 @@ def hook_logging(name):
     # add loki handler.
     if LOKI:
         log.addHandler(loki_handler)
+    # track logs as count metrics.
+    log.addHandler(CountHandler())
     # only add confluent handler if bootstrap servers are defined.
     if os.environ.get('BOOTSTRAP_SERVERS'):
         log.addHandler(confluent)

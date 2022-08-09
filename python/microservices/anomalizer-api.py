@@ -79,7 +79,7 @@ def _proxy(*args, **kwargs):
 app = APIFlask(__name__, title='anomalizer-api', static_folder='web-build')
 metrics = PrometheusMetrics(app)
 
-PORT = int(os.environ.get('ANOMALIZER_API_PORT', 8056))
+PORT = int(os.environ.get('ANOMALIZER_API_PORT', '8056'))
 
 ANOMALIZER_ENGINE = os.environ.get('ANOMALIZER_ENGINE', 'http://localhost:8060')
 ANOMALIZER_IMAGES = os.environ.get('ANOMALIZER_IMAGES', 'http://localhost:8061')

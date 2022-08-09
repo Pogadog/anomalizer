@@ -20,6 +20,7 @@ from shared import C_EXCEPTIONS_HANDLED
 import warnings
 warnings.simplefilter('ignore', np.RankWarning)
 warnings.filterwarnings('ignore', category=RuntimeWarning, module='numpy')
+warnings.simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 shared.hook_logging('engine')
 
@@ -32,7 +33,7 @@ logging.getLogger("werkzeug").disabled = True
 app = APIFlask(__name__, title='anomalizer-engine')
 metrics = PrometheusMetrics(app)
 
-PORT = int(os.environ.get('ANOMALIZER_ENGINE_PORT', 8060))
+PORT = int(os.environ.get('ANOMALIZER_ENGINE_PORT', '8060'))
 
 DURATION = 60*60*3
 STEP = 60
@@ -289,16 +290,16 @@ def refresh_metrics():
         # synthetic metrics for histogram and summary
         synth = {}
         for k, metric in METRICS.copy().items():
-            type = metric[0]['type']
+            _type = metric[0]['type']
             # apply the metric type map loaded from anomalizer.yaml
             for key in METRIC_TYPE_MAP:
                 if re.match(key, k):
                     _from, _to = METRIC_TYPE_MAP[key].split('=')
-                    if re.match(_from, type):
+                    if re.match(_from, _type):
                         METRIC_TYPES[k] = _to
                         metric[0]['type'] = _to
                         break
-            if type=='summary' or type=='histogram':
+            if _type=='summary' or _type=='histogram':
                 synth.update({k + '_count': [{'type': 'counter'}]})
                 METRIC_TYPES[k + '_count'] = 'counter'
         METRICS.update(synth)
@@ -308,7 +309,7 @@ def refresh_metrics():
         time.sleep(5)
 
 
-def get_prometheus(metric, _rate, type, step):
+def get_prometheus(metric, _rate, _type, step):
     global PROMETHEUS_HEALTHY
     #print('get_prometheus: ' + metric)
     try:
@@ -317,7 +318,7 @@ def get_prometheus(metric, _rate, type, step):
         now = time.time()
         start = now-DURATION
         rate, agg = '', ''
-        if _rate or type == 'counter':
+        if _rate or _type == 'counter':
             rate = 'rate'
             agg = '[5m]'
 
@@ -325,6 +326,9 @@ def get_prometheus(metric, _rate, type, step):
 
         with H_PROMETHEUS_CALL.time():
             result = requests.get(PROM, timeout=PROMETHEUS_TIMEOUT) # Should never timeout, if it does, bail.
+
+        if result.status_code != 200:
+            return None, None, None
 
         PROMETHEUS_HEALTHY = True
 
@@ -384,7 +388,7 @@ def hockey_stick(metric, dxi, dyi, N=5):
     # return the normalized second and first grafndients
     return p1[1]*xr/yr, p2[1]*xr/yr, l1, l2
 
-def get_metrics(metric, id, type=None, _rate=False):
+def get_metrics(metric, id, _type=None, _rate=False):
     global INTERNAL_FAILURE
     try:
         INTERNAL_FAILURE = False
@@ -393,9 +397,9 @@ def get_metrics(metric, id, type=None, _rate=False):
             return None, None, None, None
 
         # add in tags to the match. TODO: align this with the match strings on the UI
-        labels, values, query = get_prometheus(metric, _rate, type, STEP*20)
+        labels, values, query = get_prometheus(metric, _rate, _type, STEP*20)
         cardinality = 'high' if len(labels) > 100 else 'medium' if len(labels) > 10 else 'low'
-        match = metric + json.dumps({'tags': labels}) + ',' + type + ',' + json.dumps({'cardinality': cardinality})
+        match = metric + json.dumps({'tags': labels}) + ',' + _type + ',' + json.dumps({'cardinality': cardinality})
         if FILTER:
             if (re.match('.*(' + FILTER + ').*', match)==None) != INVERT:
                 return None, None, None, None
@@ -407,7 +411,7 @@ def get_metrics(metric, id, type=None, _rate=False):
             # big step first to filter.
             if not values:
                 # try _sum and _count with rate, since python does not do quantiles properly.
-                labels, values, query = get_prometheus(metric + '_sum', True, type, STEP)
+                labels, values, query = get_prometheus(metric + '_sum', True, _type, STEP)
                 if not values:
                     return None, None, None, None
 
@@ -419,24 +423,24 @@ def get_metrics(metric, id, type=None, _rate=False):
                 #print('metric; ' + metric + ' is not interesting, std=' + str(std) + '...')
                 return None, None, None, None
 
-        labels, values, query = get_prometheus(metric, _rate, type, STEP)
+        labels, values, query = get_prometheus(metric, _rate, _type, STEP)
         if not values:
             # try _sum and _count with rate, since python does not do quantiles properly.
-            labels, values, query = get_prometheus(metric + '_sum', True, type, STEP)
-            labels_count, values_count, _ = get_prometheus(metric + '_count', True, type, STEP)
+            labels, values, query = get_prometheus(metric + '_sum', True, _type, STEP)
+            labels_count, values_count, _ = get_prometheus(metric + '_count', True, _type, STEP)
 
             average = pd.DataFrame(values)
             #average = pd.DataFrame(values)/pd.DataFrame(values_count)
             average = average.fillna(0) # [5m]
             values = average.values.tolist()
 
-            #print('average rate: ' + type + '/' + metric + ': \n' + str(average))
+            #print('average rate: ' + _type + '/' + metric + ': \n' + str(average))
 
             if not values:
                 return None, None, None, None
 
             # TODO: also produce a load/latency scattergram from _sum and _count.
-            if type=='histogram' or type=='summary':
+            if _type=='histogram' or _type=='summary':
                 scat_id = id + '.scatter'
                 SCATTERGRAMS[scat_id] = []
                 dx = pd.DataFrame(values_count).fillna(0) # per-second
@@ -463,7 +467,10 @@ def get_metrics(metric, id, type=None, _rate=False):
                         dyi = dxy.iloc[:,2]
 
                         features = FEATURES[scat_id]
-                        features.clear()
+                        if 'hockeyratio' in features:
+                            del features['hockeyratio']
+                        if 'hockeystik' in features:
+                            del features['hockeystick']
                         # for a hockey-stick: require x to at least double over the domain.
                         l1, l2 = pd.DataFrame(), pd.DataFrame()
                         if (dxi.max() > 1.5*dxi.min() and len(dxi) > 20):
@@ -563,13 +570,13 @@ class DistributionFitter:
         self.prototypes['gaussian-2'] = pd.DataFrame(y)
         x = self.bins/3
         y = np.exp(-x)
-        self.prototypes['right-tail'] = pd.DataFrame(y)
-        self.prototypes['left-tail'] = pd.DataFrame(np.flipud(y))
+        self.prototypes['right-tailed'] = pd.DataFrame(y)
+        self.prototypes['left-tailed'] = pd.DataFrame(np.flipud(y))
 
         x = (self.bins-N_HIST//2)/6
         y1 = np.exp(-(x-3.33)**4)
         y2 = np.exp(-(x+3.66)**4)
-        self.prototypes['bimodal']  = pd.DataFrame(y1+y2)
+        self.prototypes['bi-modal']  = pd.DataFrame(y1+y2)
         #import matplotlib.pyplot as plt
         #for k,v in self.prototypes.items():
         #    plt.plot(v)
@@ -587,7 +594,9 @@ class DistributionFitter:
                 corr = self.prototypes.corrwith(hdf.iloc[:,0])
                 #print('corr=' + str(corr))
                 if corr.max() > 0.7:
-                    best[k] = corr.idxmax()
+                    best[k] = {corr.idxmax(): corr.max()}
+                    if 'gaussian' in corr.idxmax():
+                        best[k] = {'gaussian': corr.max()}
                 #print('best=' + str(best))
             except Exception as x:
                 # don't know, don't care.
@@ -597,6 +606,9 @@ class DistributionFitter:
 
 dist = DistributionFitter()
 
+CLASSIFY_DATA = pd.DataFrame()
+INDEX = 0
+INDEX_CLUSTER_SIZE = 5
 
 @S_POLL_METRICS.time() #.labels('engine')
 def poll_metrics():
@@ -610,13 +622,13 @@ def poll_metrics():
         METRICS_PROCESSED += 1
         id = None
         try:
-            type = METRIC_TYPES.get(metric, '')
+            _type = METRIC_TYPES.get(metric, '')
             if shared.args.verbose:
-                print('poll-metrics: ' + metric + ': ' + type)
+                print('poll-metrics: ' + metric + ': ' + _type)
             id = METRIC_MAP.get(metric, str(uuid.uuid4()))
-            _rate=type=='counter' or type=='summary'
+            _rate=_type=='counter' or _type=='summary'
             query = dict(METRICS[metric][0]).get('query', metric)
-            labels, values, query, dfp = get_metrics(query, id, type, _rate=type == 'counter' or type == 'summary')
+            labels, values, query, dfp = get_metrics(query, id, _type, _rate=_type=='counter' or _type=='summary')
             if labels and values:
                 maxlen = max(map(len, values))
                 values = [[0]*(maxlen - len(row))+row for row in values]
@@ -650,7 +662,10 @@ def poll_metrics():
                         snr = (low/high).fillna(0).sum()
 
                     features = FEATURES[id]
-                    features.clear()
+                    if 'increasing' in features:
+                        del features['increasing']
+                    if 'decreasing' in features:
+                        del features['decreasing']
                     if std > LIMIT:
                         mean_shift = (data2.mean()-data1.mean()).max()/mean if mean else 0
                         if mean_shift > INCREASE_THRESH:
@@ -662,6 +677,8 @@ def poll_metrics():
                     # right-skew, left-skew, bi-modal), picking the best fit.
                     # Fit is judged using Pearson correlation between the prototype and the histogram.
                     best = dist.best_fit(metric, dfp)
+                    if 'distribution' in features:
+                        del features['distribution']
                     if best:
                         #print(metric + ': ' + str(best))
                         features.update({'distribution': best})
@@ -676,8 +693,8 @@ def poll_metrics():
                         if spike > 10:
                             features.update({'spike': spike})
 
-                        status = Status.NORMAL
                         ''' TODO: assign status based on real anomalies.
+                        status = Status.NORMAL
                         if rstd > 0.4:
                             status = Status.WARNING
                         elif rstd > 0.7:
@@ -692,7 +709,7 @@ def poll_metrics():
                         stats = shared.no_nan(stats)
 
                         STATS[id] = stats
-                        STATUS[id] = status.value
+                        #STATUS[id] = status.value
 
             else:
                 #print('dropping ' + metric)
@@ -704,6 +721,58 @@ def poll_metrics():
 
             cleanup(id)
             C_EXCEPTIONS_HANDLED.labels(x.__class__.__name__).inc()
+
+    # compute after polling all metrics to allow for overall scaling.
+    global INDEX
+    for id in DATAFRAMES:
+        stats = STATS[id]
+        features = FEATURES[id]
+        id1 = id + '.' + str(INDEX)
+        CLASSIFY_DATA.loc['rstd', id1] = stats.get('rstd', 0)
+        CLASSIFY_DATA.loc['increasing', id1] = features.get('increasing', {}).get('increase', 0)
+        CLASSIFY_DATA.loc['decreasing', id1] = abs(features.get('decreasing', {}).get('decrease', 0))
+        CLASSIFY_DATA.loc['spike', id1] = features.get('spike', 0)
+
+    # normalize
+    scale = CLASSIFY_DATA.max(axis=1)
+    normalized = CLASSIFY_DATA.div(scale, axis=0)
+
+    if INDEX >= INDEX_CLUSTER_SIZE:
+        from sklearn.cluster import DBSCAN
+        pred = pd.DataFrame(DBSCAN(eps=0.1, min_samples=5).fit_predict(normalized.T)).T
+        pred.columns = normalized.columns
+
+        # compute how many clusters each metric is in.
+        id_to_cluster = defaultdict(set)
+        cluster_to_id = defaultdict(list)
+        for index in range(INDEX - INDEX_CLUSTER_SIZE, INDEX):
+            for id in DATAFRAMES:
+                idi = id + '.' + str(index)
+                if idi in pred:
+                    id_to_cluster[id].add(int(pred[idi][0]))
+                    cluster_to_id[int(pred[idi][0])] += [id]
+                else:
+                    print('unable to find id=' + idi + ' in pred')
+
+        for id in id_to_cluster:
+            FEATURES[id].pop('cluster', None)
+            FEATURES[id].pop('clusters', None)
+            if len(id_to_cluster[id]) > 1:
+                STATUS[id] = Status.WARNING
+                FEATURES[id]['clusters'] = list(id_to_cluster[id])
+                print('id ' + id + ' is in multiple clusters: ' + str(id_to_cluster[id]))
+            else:
+                STATUS[id] = Status.NORMAL
+                FEATURES[id]['cluster'] = list(id_to_cluster[id])[0]
+
+        for id in DATAFRAMES:
+            id1 = id + '.' + str(INDEX-5)
+            if id1 in CLASSIFY_DATA:
+                CLASSIFY_DATA.drop([id1], axis=1, inplace=True)
+
+
+    INDEX += 1
+
     time.sleep(1)
 
 def startup():
@@ -723,11 +792,11 @@ G_METRICS = Gauge('anomalizer_num_metrics', 'number of metrics')
 G_POLL_TIME = Gauge('anomalizer_poll_time', 'poll-time (seconds)')
 
 log_metrics = logging.getLogger('anomalizer-metrics')
-log_metrics.propagate = False # do not emit on stdout, just send to loki.
-if shared.LOKI:
-    handlers = log_metrics.handlers
-    log_metrics.addHandler(shared.loki_handler)
+log_metrics.propagate = False # do not emit on stdout, just send to loki and the count handler.
+log_metrics.addHandler(shared.CountHandler())
 
+if shared.LOKI:
+    log_metrics.addHandler(shared.loki_handler)
 
 # push metrics as structured logs
 def metrics_as_logs():
@@ -760,9 +829,7 @@ def resource_monitoring():
         G_METRICS.set(len(METRICS))
         G_POLL_TIME.set(POLL_TIME)
         # also emit the metrics we know about as logs.
-        if shared.LOKI:
-            metrics_as_logs()
-            pass
+        metrics_as_logs()
         # cleanup stale metrics
         for id in DATAFRAMES.copy().keys():
             remain = STALEOUT[id] - time.time()

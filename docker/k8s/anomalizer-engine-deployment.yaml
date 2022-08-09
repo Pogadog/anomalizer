@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f ../anomalizer-compose-microservices.yaml
+    kompose.version: 1.26.1 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: anomalizer-engine
+  name: anomalizer-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: anomalizer-engine
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert -f ../anomalizer-compose-microservices.yaml
+        kompose.version: 1.26.1 (HEAD)
+      creationTimestamp: null
+      labels:
+        io.kompose.service: anomalizer-engine
+    spec:
+      imagePullSecrets:
+        - name: anomalizer-secret
+      containers:
+        - command:
+            - python
+            - anomalizer-engine.py
+          env:
+            - name: ANOMALIZER_ENGINE_PORT
+              value: "8060"
+            - name: PROMETHEUS
+              value: mini-prom:9090
+            - name: X-LOKI
+              value: http://host.docker.internal:3100
+          image: ghcr.io/pogadog/anomalizer-multi:latest
+          name: anomalizer-engine
+          ports:
+            - containerPort: 8060
+          resources: {}
+      restartPolicy: Always
+status: {}

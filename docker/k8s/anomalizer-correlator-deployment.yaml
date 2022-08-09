@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f ../anomalizer-compose-microservices.yaml
+    kompose.version: 1.26.1 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: anomalizer-correlator
+  name: anomalizer-correlator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: anomalizer-correlator
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert -f ../anomalizer-compose-microservices.yaml
+        kompose.version: 1.26.1 (HEAD)
+      creationTimestamp: null
+      labels:
+        io.kompose.service: anomalizer-correlator
+    spec:
+      imagePullSecrets:
+        - name: anomalizer-secret
+      containers:
+        - command:
+            - python
+            - anomalizer-correlator.py
+          env:
+            - name: ANOMALIZER_ENGINE
+              value: http://anomalizer-engine:8060
+            - name: X-LOKI
+              value: http://host.docker.internal:3100
+          image: ghcr.io/pogadog/anomalizer-multi:latest
+          name: anomalizer-correlator
+          resources: {}
+      restartPolicy: Always
+status: {}

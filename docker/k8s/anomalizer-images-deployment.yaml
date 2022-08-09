@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f ../anomalizer-compose-microservices.yaml
+    kompose.version: 1.26.1 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: anomalizer-images
+  name: anomalizer-images
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: anomalizer-images
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert -f ../anomalizer-compose-microservices.yaml
+        kompose.version: 1.26.1 (HEAD)
+      creationTimestamp: null
+      labels:
+        io.kompose.service: anomalizer-images
+    spec:
+      imagePullSecrets:
+        - name: anomalizer-secret
+      containers:
+        - command:
+            - python
+            - anomalizer-images.py
+          env:
+            - name: ANOMALIZER_CORRELATOR
+              value: http://anomalizer-correlator:8062
+            - name: ANOMALIZER_ENGINE
+              value: http://anomalizer-engine:8060
+            - name: ANOMALIZER_IMAGES_PORT
+              value: "8061"
+            - name: I_SHARD
+              value: "0"
+            - name: X-LOKI
+              value: http://host.docker.internal:3100
+          image: ghcr.io/pogadog/anomalizer-multi:latest
+          name: anomalizer-images
+          ports:
+            - containerPort: 8061
+          resources: {}
+      restartPolicy: Always
+status: {}

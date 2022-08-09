@@ -11,6 +11,9 @@ from health import Health
 import shared
 from shared import C_EXCEPTIONS_HANDLED
 
+import warnings
+warnings.simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
+
 SHARDS = shared.I_SHARDS
 SHARD = shared.I_SHARD
 
@@ -57,7 +60,7 @@ GRID_EXPIRES = 300 # seconds
 app = APIFlask(__name__, title='anomalizer-images')
 merics = PrometheusMetrics(app)
 
-PORT = int(os.environ.get('ANOMALIZER_IMAGES_PORT', SHARD*10000+8061))
+PORT = int(os.environ.get('ANOMALIZER_IMAGES_PORT', str(SHARD*10000+8061)))
 
 @app.route('/health')
 def health():

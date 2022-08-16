@@ -173,6 +173,10 @@ def filter_metrics_post(body):
 def filter_metrics_get():
     return _proxy(ANOMALIZER_ENGINE)
 
+@app.get('/poll_filter')
+def poll_filter():
+    return _proxy(ANOMALIZER_ENGINE)
+
 @app.route('/figure/<id>')
 def figure_id(id):
     id = id.split('.')[0] # handle scattergram ids.
@@ -255,7 +259,7 @@ def tags():
 if __name__ == '__main__':
     try:
         print('PORT=' + str(PORT))
-        app.run(host='0.0.0.0', port=PORT, use_reloader=False)
+        app.run(host='0.0.0.0', port=PORT, use_reloader=False, threaded=True)
     except Exception as x:
         print('error: ' + str(x))
         exit(1)

@@ -25,5 +25,7 @@ automatic_scaling:
 
 env_variables:
   RESTORE_STATE: True
+  SAVE_STATE: True
   LOAD_TEST: True
   MINI_PROM: True
+  TRACEBACK: True

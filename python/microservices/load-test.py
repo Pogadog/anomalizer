@@ -9,6 +9,7 @@ from flask import Flask, jsonify, request, make_response
 import threading, requests, time, random
 from threading import current_thread
 import logging
+import shared
 
 logging.getLogger("werkzeug").disabled = True
 
@@ -96,7 +97,7 @@ def load_test(index):
         time.sleep(random.uniform(0, 2))
 
 def up_down_load():
-    load = 1
+    load = MAX_LOAD
     updown = 1
     while True:
         # generate a lot of synthetic gauges.
@@ -106,15 +107,16 @@ def up_down_load():
             gauge.set(count)
             count += 1
         # spend 1 minute at each load level
-        time.sleep(60)
-        load += updown
-        if load == MAX_LOAD or load == 0:
-            updown = -updown
         set_load(load)
+        if load >= MAX_LOAD or load <= 1:
+            updown = -updown
+        load += updown
+        time.sleep(60)
 
 
 
 threading.Thread(target=up_down_load).start()
+threading.Thread(target=shared.resource_monitoring).start()
 
 set_load(1)
 
@@ -122,4 +124,4 @@ if __name__=='__main__':
     import os
     PORT = int(os.environ.get('LOAD_TEST_PORT', '7070'))
     print('load-test: PORT=' + str(PORT))
-    app.run(host='0.0.0.0', port=PORT)
+    app.run(host='0.0.0.0', port=PORT, threaded=True)

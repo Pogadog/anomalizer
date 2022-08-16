@@ -280,7 +280,7 @@ if __name__ == '__main__':
         startup()
 
         print('PORT=' + str(PORT))
-        app.run(host='0.0.0.0', port=PORT, use_reloader=False)
+        app.run(host='0.0.0.0', port=PORT, use_reloader=False, threaded=True)
     except Exception as x:
         print(repr(x))
         exit(1)

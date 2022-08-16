@@ -19,6 +19,7 @@ from shared import C_EXCEPTIONS_HANDLED
 
 import warnings
 warnings.simplefilter('ignore', np.RankWarning)
+warnings.simplefilter('ignore', np.linalg.LinAlgError)
 warnings.filterwarnings('ignore', category=RuntimeWarning, module='numpy')
 warnings.simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
@@ -47,11 +48,8 @@ INVERT = True
 FILTER2 = ''
 INVERT2 = False
 
-PROMETHEUS = os.environ.get('PROMETHEUS', 'localhost:9090')
-PROMETHEUS = 'http://' + PROMETHEUS
-
-META = PROMETHEUS + '/api/v1/metadata'
-LABELS = PROMETHEUS + '/api/v1/labels'
+PROMETHEUS = os.environ.get('PROMETHEUS', 'http://localhost:9090')
+META = os.environ.get('PROMETHEUS_META', PROMETHEUS + '/api/v1/metadata')
 
 ID_MAP = {}
 METRIC_MAP = {}
@@ -59,6 +57,8 @@ DATAFRAMES = {}
 SCATTERGRAMS = {}
 STATS = {}
 STATUS = {}
+STATUS_COUNTERS = Counter()
+STATUS_HOLD = 2
 LABELS = {}
 QUERIES = {}
 FEATURES = defaultdict(dict)
@@ -131,7 +131,7 @@ def dataframes():
     features = dict( [key, FEATURES[key]] for key in ids if key in FEATURES)
     cardinalities = dict( [key, CARDINALITY[key]] for key in ids if key in CARDINALITY)
     metric_types = dict( [key, METRIC_TYPES[id_map[key]]] for key in ids if key in ID_MAP)
-    status = dict( [key, STATUS[key]] for key in ids if key in STATUS)
+    status = dict( [key, STATUS.get(key, Status.NORMAL)] for key in ids)
 
     dfs = dict((id, df.to_json()) for id, df in list(DATAFRAMES.copy().items())[0:limit])
 
@@ -216,6 +216,8 @@ def tags():
                 metric_details[tag][metric] += 1
     return jsonify({'tag-summary': tag_summary, 'tag-details': tag_details, 'metric-summary': metric_summary, 'metric-details': metric_details})
 
+sem = threading.Semaphore(0)
+
 @app.route('/filter', methods=['GET', 'POST'])
 def filter_metrics():
     body = request.json
@@ -227,8 +229,20 @@ def filter_metrics():
         INVERT2 = body.get('invert2', INVERT2)
         # TODO: reflect back to UI, until then, fix at [-1].
         LIMIT = float(body.get('limit', LIMIT))
+        # binary semaphore.
+        if not sem._value:
+            sem.release()
     result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2}
     return jsonify(result)
+
+# long-poll for updates to the server-side filter parameters
+@app.route('/poll_filter')
+def poll_filter():
+    # block on a semaphore, return when released by the filter_metrics() update.
+    sem.acquire()
+    result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2}
+    return jsonify(result)
+
 
 def cleanup(id):
     try:
@@ -266,13 +280,9 @@ def _metadata():
         meta = requests.get(META, timeout=PROMETHEUS_TIMEOUT).json()['data']
         for m in list(meta.keys())[:]:
             METRIC_TYPES[m] = meta[m][0]['type'] # todo: handle multi-variable
-            #if not m in METRIC_MAP:
-            #    del meta[m]
-        #print('METRIC_TYPES=' + str(METRIC_TYPES))
-        return {'status': 'success', 'data': meta}
     except Exception as x:
+        shared.trace(x)
         print('unable to contact prometheus at: ' + META, file=sys.stderr)
-        return {'status': 'failure'}
 
 def refresh_metrics():
     try:
@@ -322,7 +332,10 @@ def get_prometheus(metric, _rate, _type, step):
             rate = 'rate'
             agg = '[5m]'
 
-        PROM = PROMETHEUS + '/api/v1/query_range?query=' + rate + '(' + metric + agg + ')&start=' + str(start) + '&end=' + str(now) + '&step=' + str(step)
+        import urllib.parse
+        query = urllib.parse.quote(rate + '(' + metric + agg + ')')
+
+        PROM = PROMETHEUS + '/api/v1/query_range?query=' + query + '&start=' + str(start) + '&end=' + str(now) + '&step=' + str(step)
 
         with H_PROMETHEUS_CALL.time():
             result = requests.get(PROM, timeout=PROMETHEUS_TIMEOUT) # Should never timeout, if it does, bail.
@@ -333,13 +346,22 @@ def get_prometheus(metric, _rate, _type, step):
         PROMETHEUS_HEALTHY = True
 
         _json = result.json()['data']['result']
+        _lim = DURATION//STEP
         for i, j in enumerate(_json):
             if '__name__' in j['metric']:
                 del j['metric']['__name__']
             label = str(j['metric'])
             labels.append(label)
+            tvalues = list(map(lambda x: float(x[0]), j['values']))
             lvalues = list(map(lambda x: float(x[1]), j['values']))
-            values.append(lvalues)
+            if os.environ.get('MINI_PROM')=='True':
+                values.append(lvalues)
+            else:
+                # fill in any gaps.
+                tvalues = [min(_lim, math.ceil((t-start)/step)) for t in tvalues]
+                padded = np.zeros(DURATION//STEP+1)
+                padded[tvalues] = lvalues
+                values.append(padded.tolist())
         query = PROM.replace('/api/v1/query_range?query=', '/graph?g0.expr=')
         return labels, values, query
     except:
@@ -396,22 +418,30 @@ def get_metrics(metric, id, _type=None, _rate=False):
         if not metric:
             return None, None, None, None
 
+        # split filter into to parts: {tags}regex
+        if FILTER2.startswith('{'):
+            _, filter_tags, filter2 = re.split('{|}', FILTER2)
+            filter_tags = '{' + filter_tags + '}'
+        else:
+            filter_tags = ''
+            filter2 = FILTER2
+
         # add in tags to the match. TODO: align this with the match strings on the UI
-        labels, values, query = get_prometheus(metric, _rate, _type, STEP*20)
-        cardinality = 'high' if len(labels) > 100 else 'medium' if len(labels) > 10 else 'low'
+        # big step first to filter.
+        labels, values, query = get_prometheus(metric+filter_tags, _rate, _type, STEP*20)
+        cardinality = 'high' if labels and len(labels) > 100 else 'medium' if labels and len(labels) > 10 else 'low'
         match = metric + json.dumps({'tags': labels}) + ',' + _type + ',' + json.dumps({'cardinality': cardinality})
         if FILTER:
             if (re.match('.*(' + FILTER + ').*', match)==None) != INVERT:
                 return None, None, None, None
-        if FILTER2:
+        if filter2:
             if (re.match('.*(' + FILTER2 + ').*', match)==None) != INVERT2:
                 return None, None, None, None
         #print('rendering metric=' + match)
         if LIMIT:
-            # big step first to filter.
             if not values:
                 # try _sum and _count with rate, since python does not do quantiles properly.
-                labels, values, query = get_prometheus(metric + '_sum', True, _type, STEP)
+                labels, values, query = get_prometheus(metric + '_sum' + filter_tags, True, _type, STEP)
                 if not values:
                     return None, None, None, None
 
@@ -423,11 +453,11 @@ def get_metrics(metric, id, _type=None, _rate=False):
                 #print('metric; ' + metric + ' is not interesting, std=' + str(std) + '...')
                 return None, None, None, None
 
-        labels, values, query = get_prometheus(metric, _rate, _type, STEP)
+        labels, values, query = get_prometheus(metric + filter_tags, _rate, _type, STEP)
         if not values:
             # try _sum and _count with rate, since python does not do quantiles properly.
-            labels, values, query = get_prometheus(metric + '_sum', True, _type, STEP)
-            labels_count, values_count, _ = get_prometheus(metric + '_count', True, _type, STEP)
+            labels, values, query = get_prometheus(metric + '_sum' + filter_tags, True, _type, STEP)
+            labels_count, values_count, _ = get_prometheus(metric + '_count' + filter_tags, True, _type, STEP)
 
             average = pd.DataFrame(values)
             #average = pd.DataFrame(values)/pd.DataFrame(values_count)
@@ -447,70 +477,71 @@ def get_metrics(metric, id, _type=None, _rate=False):
                 dy = pd.DataFrame(values).fillna(0)
                 maxdy = dy.max().max()
                 count = 0
-                for i in range(dx.shape[0]):
-                    if dy.loc[i].max() > maxdy*0.2 and dy.loc[i].std(ddof=0) > LIMIT:
-                        # top 80% of scattergrams by value, limit 20. TODO: sort.
-                        count += 1
-                        if count > 20:
-                            break
-                        #print('generating scattergram for ' + metric + '.' + str(i))
-                        dxi = dx.loc[i]
-                        dyi = dy.loc[i]
-                        index = pd.DataFrame(dx.T.index)
-                        dxy = pd.concat([index, dxi, dyi], axis=1)
-                        dxy.columns = ['i', 'x', 'y']
-                        # remove zero rows.
-                        dxy = dxy.loc[(dxy.iloc[:,1:3]!=0).any(1)]
+                if dx.shape[0]==dy.shape[0]:
+                    for i in range(dx.shape[0]):
+                        if dy.loc[i].max() > maxdy*0.2 and dy.loc[i].std(ddof=0) > LIMIT:
+                            # top 80% of scattergrams by value, limit 20. TODO: sort.
+                            count += 1
+                            if count > 20:
+                                break
+                            #print('generating scattergram for ' + metric + '.' + str(i))
+                            dxi = dx.loc[i]
+                            dyi = dy.loc[i]
+                            index = pd.DataFrame(dx.T.index)
+                            dxy = pd.concat([index, dxi, dyi], axis=1)
+                            dxy.columns = ['i', 'x', 'y']
+                            # remove zero rows.
+                            dxy = dxy.loc[(dxy.iloc[:,1:3]!=0).any(1)]
 
-                        dii = dxy.iloc[:,0]
-                        dxi = dxy.iloc[:,1]
-                        dyi = dxy.iloc[:,2]
+                            dii = dxy.iloc[:,0]
+                            dxi = dxy.iloc[:,1]
+                            dyi = dxy.iloc[:,2]
 
-                        features = FEATURES[scat_id]
-                        if 'hockeyratio' in features:
-                            del features['hockeyratio']
-                        if 'hockeystik' in features:
-                            del features['hockeystick']
-                        # for a hockey-stick: require x to at least double over the domain.
-                        l1, l2 = pd.DataFrame(), pd.DataFrame()
-                        if (dxi.max() > 1.5*dxi.min() and len(dxi) > 20):
-                            try:
-                                p1, p2, l1, l2 = hockey_stick(metric + '.' + str(i), dxi, dyi)
-                                ratio = 0
-                                ratio = p2 - p1
-                                if math.isnan(ratio):
+                            features = FEATURES[scat_id]
+                            if 'hockeyratio' in features:
+                                del features['hockeyratio']
+                            if 'hockeystik' in features:
+                                del features['hockeystick']
+                            # for a hockey-stick: require x to at least double over the domain.
+                            l1, l2 = pd.DataFrame(), pd.DataFrame()
+                            if (dxi.max() > 1.5*dxi.min() and len(dxi) > 20):
+                                try:
+                                    p1, p2, l1, l2 = hockey_stick(metric + '.' + str(i), dxi, dyi)
                                     ratio = 0
-                                # normalize hockeysticks to range 0-1.
-                                features['hockeyratio'] = ratio
-                                if ratio > 2:
-                                    ratio = min(4, ratio)/4
-                                    features.update({'hockeystick': {'increasing': ratio, 'p1': p1, 'p2':p2}})
-                                elif ratio < -2:
-                                    ratio = max(-4, ratio)/4
-                                    features.update({'hockeystick':  {'decreasing': ratio, 'p1': p1, 'p2':p2}})
+                                    ratio = p2 - p1
+                                    if math.isnan(ratio):
+                                        ratio = 0
+                                    # normalize hockeysticks to range 0-1.
+                                    features['hockeyratio'] = ratio
+                                    if ratio > 2:
+                                        ratio = min(4, ratio)/4
+                                        features.update({'hockeystick': {'increasing': ratio, 'p1': p1, 'p2':p2}})
+                                    elif ratio < -2:
+                                        ratio = max(-4, ratio)/4
+                                        features.update({'hockeystick':  {'decreasing': ratio, 'p1': p1, 'p2':p2}})
 
-                            except Exception as x:
-                                shared.trace(x)
-                                print('problem computing hockey-stick: ' + metric + '.' + str(i), file=sys.stderr)
+                                except Exception as x:
+                                    shared.trace(x, trace=False)
+                                    print('problem computing hockey-stick: ' + metric + '.' + str(i), file=sys.stderr)
 
-                        _mean = dyi.mean()
-                        _max = dyi.max()
-                        _min = dyi.min()
-                        std = dyi.std(ddof=0)
-                        rstd = std/_mean if _mean>std else std
-                        spike = _max/_mean if _min>0 else 0
-                        if spike > 10:
-                            features.update({'spike': spike})
+                            _mean = dyi.mean()
+                            _max = dyi.max()
+                            _min = dyi.min()
+                            std = dyi.std(ddof=0)
+                            rstd = std/_mean if _mean>std else std
+                            spike = _max/_mean if _min>0 else 0
+                            if spike > 10:
+                                features.update({'spike': spike})
 
-                        stats = {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': _mean, 'std': std, 'spike': spike}
-                        stats = shared.no_nan(stats)
+                            stats = {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': _mean, 'std': std, 'spike': spike}
+                            stats = shared.no_nan(stats)
 
-                        status = STATUS.get(id, Status.NORMAL.value)
-                        SCATTERGRAMS[scat_id] += [{'xy': dxy, 'stats': stats, 'labels': labels, 'cardinality': cardinality, 'metric': metric, 'l1': l1, 'l2': l2, 'features': features, 'status': status}]
+                            status = STATUS.get(id, Status.NORMAL.value)
+                            SCATTERGRAMS[scat_id] += [{'xy': dxy, 'stats': stats, 'labels': labels, 'cardinality': cardinality, 'metric': metric, 'l1': l1, 'l2': l2, 'features': features, 'status': status}]
 
-                    else:
-                        pass
-                        #print('ignoring boring scattergram for ' + metric + ': ' + scat_id + '.' + str(i))
+                        else:
+                            pass
+                            #print('ignoring boring scattergram for ' + metric + ': ' + scat_id + '.' + str(i))
 
 
         # right-align mismatch row lengths to make latest time points right.
@@ -594,9 +625,9 @@ class DistributionFitter:
                 corr = self.prototypes.corrwith(hdf.iloc[:,0])
                 #print('corr=' + str(corr))
                 if corr.max() > 0.7:
-                    best[k] = {corr.idxmax(): corr.max()}
+                    best[k] = corr.idxmax()
                     if 'gaussian' in corr.idxmax():
-                        best[k] = {'gaussian': corr.max()}
+                        best[k] = 'gaussian'
                 #print('best=' + str(best))
             except Exception as x:
                 # don't know, don't care.
@@ -608,7 +639,7 @@ dist = DistributionFitter()
 
 CLASSIFY_DATA = pd.DataFrame()
 INDEX = 0
-INDEX_CLUSTER_SIZE = 5
+INDEX_CLUSTER_SIZE = 10
 
 @S_POLL_METRICS.time() #.labels('engine')
 def poll_metrics():
@@ -666,12 +697,11 @@ def poll_metrics():
                         del features['increasing']
                     if 'decreasing' in features:
                         del features['decreasing']
-                    if std > LIMIT:
-                        mean_shift = (data2.mean()-data1.mean()).max()/mean if mean else 0
-                        if mean_shift > INCREASE_THRESH:
-                            features.update({'increasing': {'increase': mean_shift}})
-                        elif mean_shift < DECREASE_THRESH:
-                            features.update({'decreasing': {'decrease': mean_shift}})
+                    mean_shift = (data2.mean()-data1.mean()).max()/mean if mean else 0
+                    if mean_shift > INCREASE_THRESH:
+                        features.update({'increasing': {'increase': mean_shift}})
+                    elif mean_shift < DECREASE_THRESH:
+                        features.update({'decreasing': {'decrease': mean_shift}})
 
                     # best_fit uses a 21 bin histogram for the data, and fits a set of prototypes (normal,
                     # right-skew, left-skew, bi-modal), picking the best fit.
@@ -690,26 +720,20 @@ def poll_metrics():
                         _min = dfp.min().min()
                         rstd = std/_mean if _mean>std else 0
                         spike = _max/_mean if _mean>0 else _max
+                        # compute spike of first difference to detect large positive steps (dspike)
+                        dmax = dfp.diff().fillna(0).max().max()
                         if spike > 10:
                             features.update({'spike': spike})
 
-                        ''' TODO: assign status based on real anomalies.
-                        status = Status.NORMAL
-                        if rstd > 0.4:
-                            status = Status.WARNING
-                        elif rstd > 0.7:
-                            status = Status.CRITICAL
-                        '''
                         cardinality = 'high' if len(labels) >= 10 else 'low'
 
                         if snr > 0 and rstd < 0.4 and snr < 2: # normal and noisy.
                             features.update({'noisy': {'snr': snr}})
 
-                        stats = {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': mean, 'std': std, 'spike': spike, 'snr': snr}
+                        stats = {'rstd': rstd, 'max': _max, 'rmax': -_max, 'mean': mean, 'mean_shift': mean_shift, 'std': std, 'spike': spike, 'snr': snr}
                         stats = shared.no_nan(stats)
 
                         STATS[id] = stats
-                        #STATUS[id] = status.value
 
             else:
                 #print('dropping ' + metric)
@@ -725,21 +749,29 @@ def poll_metrics():
     # compute after polling all metrics to allow for overall scaling.
     global INDEX
     for id in DATAFRAMES:
-        stats = STATS[id]
-        features = FEATURES[id]
-        id1 = id + '.' + str(INDEX)
-        CLASSIFY_DATA.loc['rstd', id1] = stats.get('rstd', 0)
-        CLASSIFY_DATA.loc['increasing', id1] = features.get('increasing', {}).get('increase', 0)
-        CLASSIFY_DATA.loc['decreasing', id1] = abs(features.get('decreasing', {}).get('decrease', 0))
-        CLASSIFY_DATA.loc['spike', id1] = features.get('spike', 0)
+        stats = STATS.get(id, {})
+        features = FEATURES.get(id, {})
+        idi = id + '.' + str(INDEX)
+        CLASSIFY_DATA.loc['rstd', idi] = stats.get('rstd', 0)
+        CLASSIFY_DATA.loc['increasing', idi] = features.get('increasing', {}).get('increase', 0)
+        CLASSIFY_DATA.loc['decreasing', idi] = abs(features.get('decreasing', {}).get('decrease', 0))
+        CLASSIFY_DATA.loc['spike', idi] = features.get('spike', 0)
 
     # normalize
     scale = CLASSIFY_DATA.max(axis=1)
-    normalized = CLASSIFY_DATA.div(scale, axis=0)
+    normalized = CLASSIFY_DATA.div(scale, axis=0).fillna(0)
+    #normalized = CLASSIFY_DATA
 
-    if INDEX >= INDEX_CLUSTER_SIZE:
+    for id in DATAFRAMES:
+        FEATURES[id]['normalized_features'] = 0
+        STATUS[id] = Status.NORMAL
+        for index in range(INDEX, INDEX + INDEX_CLUSTER_SIZE):
+            idi = id + '.' + str(index)
+            FEATURES[id]['normalized_features'] += np.linalg.norm(normalized.get(idi, 0))/INDEX_CLUSTER_SIZE
+
+    if INDEX >= INDEX_CLUSTER_SIZE and len(CLASSIFY_DATA):
         from sklearn.cluster import DBSCAN
-        pred = pd.DataFrame(DBSCAN(eps=0.1, min_samples=5).fit_predict(normalized.T)).T
+        pred = pd.DataFrame(DBSCAN(eps=0.1, min_samples=len(CLASSIFY_DATA)+1).fit_predict(normalized.T)).T
         pred.columns = normalized.columns
 
         # compute how many clusters each metric is in.
@@ -752,23 +784,30 @@ def poll_metrics():
                     id_to_cluster[id].add(int(pred[idi][0]))
                     cluster_to_id[int(pred[idi][0])] += [id]
                 else:
-                    print('unable to find id=' + idi + ' in pred')
+                    print('unable to find id=' + idi + ' in classify-pred')
 
+        print('#clusters=' + str(len(cluster_to_id)))
         for id in id_to_cluster:
-            FEATURES[id].pop('cluster', None)
             FEATURES[id].pop('clusters', None)
-            if len(id_to_cluster[id]) > 1:
-                STATUS[id] = Status.WARNING
-                FEATURES[id]['clusters'] = list(id_to_cluster[id])
+            FEATURES[id]['cluster'] = list(id_to_cluster[id])[0]
+            if (len(id_to_cluster[id]) > 1 and not -1 in id_to_cluster[id]):
+                STATUS_COUNTERS[id] = STATUS_HOLD # hold for warning status.
                 print('id ' + id + ' is in multiple clusters: ' + str(id_to_cluster[id]))
-            else:
-                STATUS[id] = Status.NORMAL
-                FEATURES[id]['cluster'] = list(id_to_cluster[id])[0]
+                FEATURES[id]['clusters'] = list(id_to_cluster[id])
+                if STATUS_COUNTERS[id] == 0:
+                    STATUS[id] = Status.NORMAL
+                else:
+                    if len(id_to_cluster[id]) == 2:
+                        STATUS[id] = Status.WARNING
+                    else:
+                        STATUS[id] = Status.CRITICAL
+            if STATUS_COUNTERS[id] > 0:
+                STATUS_COUNTERS[id] -= 1
 
         for id in DATAFRAMES:
-            id1 = id + '.' + str(INDEX-5)
-            if id1 in CLASSIFY_DATA:
-                CLASSIFY_DATA.drop([id1], axis=1, inplace=True)
+            idi = id + '.' + str(INDEX-INDEX_CLUSTER_SIZE)
+            if idi in CLASSIFY_DATA:
+                CLASSIFY_DATA.drop([idi], axis=1, inplace=True)
 
 
     INDEX += 1
@@ -845,7 +884,7 @@ if __name__ == '__main__':
         startup()
 
         print('PORT=' + str(PORT))
-        app.run(host='0.0.0.0', port=PORT, use_reloader=False)
+        app.run(host='0.0.0.0', port=PORT, use_reloader=False, threaded=True)
     except Exception as x:
         print('error: ' + str(x))
         exit(1)

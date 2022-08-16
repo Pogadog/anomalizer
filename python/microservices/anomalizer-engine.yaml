@@ -7,3 +7,4 @@ extra-metrics:
 # for node metrics, map unknown to counter.
 metric-type-map:
   node.*: unknown|gauge=counter
+  counter_.*: unknown=counter

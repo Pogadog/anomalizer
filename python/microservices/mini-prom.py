@@ -172,7 +172,7 @@ def miniprom():
             for mtarget in targets:
                 for target in mtarget['targets']:
                     try:
-                        print('scraping: http://' + target + '/metrics')
+                        print('scraping: job=' + job + ', endpoint=http://' + target + '/metrics')
                         text = requests.get('http://' + target + '/metrics').text
                         _time = time.time()
                         for family in text_string_to_metric_families(text):
@@ -209,7 +209,7 @@ def miniprom():
     import threading, pickle
     
     def checkpoint(loop=True):
-        if os.environ.get('RESTORE_STATE', 'False')=='True':
+        if os.environ.get('SAVE_STATE', 'False')=='True':
             while True:
                 try:
                     # passivate to the cloud bucket.

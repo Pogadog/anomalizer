@@ -25,3 +25,17 @@ features {
 }
 ```
 
+## Clustering
+Currently metrics are custered according to the following features, derived from the 
+statitics associated with the metrics:
+
+```
+CLASSIFY_DATA.loc['rstd', idi] = stats.get('rstd', 0)
+CLASSIFY_DATA.loc['mean_shift', idi] = stats.get('mean_shift', 0)
+CLASSIFY_DATA.loc['spike', idi] = stats.get('spike', 0)
+CLASSIFY_DATA.loc['dspike', idi] = stats.get('dspike', 0) # first-difference spike
+```
+
+These statistics are normalized so that they lie between 0..1, and are fed to the scikit.DBSCAN
+algorithm for clustering analysis.  mean_shift is the driver for the increasing/decreasing features.
+

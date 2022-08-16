@@ -16,9 +16,9 @@ parser.add_argument('--load-test', action='store_true', help='spin up a load tes
 args = parser.parse_known_args()[0]
 print(args)
 
-PROMETHEUS = os.environ.get('PROMETHEUS', 'localhost:9090')
+PROMETHEUS = os.environ.get('PROMETHEUS', 'http://localhost:9090')
 if args.mini_prom:
-    PROMETHEUS = 'localhost:9090'
+    PROMETHEUS = 'http://localhost:9090'
 
 try:
     SLEEP = 1 # just enough time for dependent services to come up and avoid errors.

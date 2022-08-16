@@ -56,6 +56,7 @@ def shard_endpoint(end, shard):
 G_MEMORY_RSS = Gauge('anomalizer_memory_rss', 'resident memory consumption of program', unit='GB')
 G_MEMORY_VMS = Gauge('anomalizer_memory_vms', 'virtual memory consumption of program', unit='GB')
 G_THREADS = Gauge('anomalizer_active_threads', 'number of active threads')
+G_DISK_FREE = Gauge('anomalizer_disk_free', 'free storage in filesystem', unit='percent')
 G_CPU = Gauge('anomalizer_cpu', 'percent cpu utilizaton')
 
 C_LOG_MESSAGE = Counter('anomalizer_logs', 'log messages by level and name', ('level', 'name'))
@@ -71,6 +72,9 @@ def resource_monitoring():
         G_MEMORY_VMS.set(info.vms/GB)
         G_THREADS.set(threading.active_count())
         G_CPU.set(psutil.cpu_percent())
+        disk = psutil.disk_usage('/')
+        if disk.total:
+            G_DISK_FREE.set(disk.free/(disk.total))
         time.sleep(30)
 
 threading.Thread(target=resource_monitoring).start()

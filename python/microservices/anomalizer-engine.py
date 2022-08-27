@@ -217,21 +217,24 @@ def tags():
     return jsonify({'tag-summary': tag_summary, 'tag-details': tag_details, 'metric-summary': metric_summary, 'metric-details': metric_details})
 
 sem = threading.Semaphore(0)
+WAITING = 0
 
 @app.route('/filter', methods=['GET', 'POST'])
 def filter_metrics():
     body = request.json
     if body:
-        global FILTER, INVERT, LIMIT, FILTER2, INVERT2
+        global FILTER, INVERT, LIMIT, FILTER2, INVERT2, WAITING
         FILTER = body.get('query', FILTER)
         INVERT = body.get('invert', INVERT)
         FILTER2 = body.get('query2', FILTER2)
         INVERT2 = body.get('invert2', INVERT2)
         # TODO: reflect back to UI, until then, fix at [-1].
         LIMIT = float(body.get('limit', LIMIT))
-        # binary semaphore.
-        if not sem._value:
+        # release the pending waiters
+        while WAITING:
             sem.release()
+            WAITING -= 1 # no neeed to lock, the GIL does that for us.
+
     result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2}
     return jsonify(result)
 
@@ -239,6 +242,8 @@ def filter_metrics():
 @app.route('/poll_filter')
 def poll_filter():
     # block on a semaphore, return when released by the filter_metrics() update.
+    global WAITING
+    WAITING += 1
     sem.acquire()
     result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2}
     return jsonify(result)

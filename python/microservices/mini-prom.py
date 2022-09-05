@@ -5,7 +5,7 @@
 #   /metrics -- current metrics gathered from other prometheus (proxy)
 #   /api/v1/metadata -- metadata about metrics
 #   /api/v1/query_range?query=<metric>>&start=<start>>&end=<end>&step=<step> -- time-series for metrics.
-import json, sys, os
+import json, sys, os, re
 import traceback
 
 import shared
@@ -16,15 +16,17 @@ shared.hook_logging('mini-prom')
 
 from flask import Flask, jsonify, request, make_response
 from apiflask import APIFlask
-from urllib.parse import unquote
+from urllib.parse import urlparse, parse_qs
 import pandas as pd
 
 import yaml
 from prometheus_client import Summary, Gauge, generate_latest
 from prometheus_client.parser import text_string_to_metric_families
 import requests, time, ast, re, os
-
 import logging
+
+import prom_parser
+
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
@@ -42,7 +44,7 @@ CONFIG = None
 
 # METRICS_BY_NAME = [(start, end, metrics={name: [time, {sorted(tags): value}]
 RESOLUTION = 60
-METRICS_BY_NAME = [{'start': time.time(), 'end': time.time() + RESOLUTION, 'metrics': {}}]
+METRICS_BY_NAME = [{'start': time.time(), 'end': time.time() + RESOLUTION, 'metrics': {}, 'types': {}}]
 METRICS_FAMILY = {}
 CURRENT = 0
 
@@ -89,6 +91,13 @@ def metadata():
         data[metric] += [{'type': family['type'], 'help': family['help'], 'unit': family['unit']}]
     return jsonify(blob)
 
+def to_dict(ast):
+    result = {}
+    for a in ast:
+        split = a.split('=')
+        result[split[0]] = split[1]
+    return result
+
 @server.route('/api/v1/query_range')
 def query_range():
 
@@ -98,42 +107,109 @@ def query_range():
             'data': {
                 'resultType': 'matrix',
                 'result': []
-            }
+            },
+            'metrics': []
         }
-        query = unquote(request.query_string.decode())
-        split = re.split(r'[()]', query)
-        if split[0].endswith('rate'):
-            metric, rate = split[1].split('[')
-            rate = rate.split(']')[0]
-            rate, unit = int(rate[0:-1]), rate[-1]
+
+
+        parse_result = urlparse(request.url)
+        dquery = parse_qs(parse_result.query)
+        query = dquery['query'][0]
+        start = float(dquery.get('start', [str(time.time()-180*60)])[0])
+        end = float(dquery.get('end', [str(time.time())])[0])
+        step = int(dquery.get('step', ['15'])[0]) # 15 second step by default.
+
+        NEW = True
+        if NEW:
+            try:
+                parsed = prom_parser.parse(query)
+                current = METRICS_BY_NAME[CURRENT]
+                evaluated = prom_parser.eval_tree({'metrics': current['metrics'], 'types': current.get('types', {})}, parsed)
+                # resample the data to matcch the step.
+                evaluated.index = pd.to_datetime(evaluated.index, unit='s')
+                evaluated = evaluated.resample(str(step)+'s').mean().interpolate().fillna(0)
+                evaluated.index = (evaluated.index.astype(int)//1e9).astype(int)
+                evaluated = evaluated[evaluated.index>start]
+                evaluated = evaluated[evaluated.index<end]
+
+                result = blob['data']['result']
+                indices = evaluated.index
+                if len(evaluated.shape)==2:
+                    for i in range(0, evaluated.shape[1]):
+                        col = evaluated.columns[i]
+                        values = evaluated.iloc[:,i].values.tolist()
+                        values = [[str(indices[i]), str(v)] for i,v in enumerate(values)]
+                        tags = dict([x.split('=') for x in ast.literal_eval(col)])
+                        _metric = {'__name__': query}
+                        _metric.update(tags)
+                        result += [{'metric': _metric, 'values': values}]
+            except:
+                pass # ignore parsing and evaluation errors.
+            return jsonify(blob)
+        else:
+
+            parsed = prom_parser.parse(query)
+            # parsed tuple ('rate', ('metric-name', 'tags', 'time'))
+            print('***** ' + str(parsed))
+            if len(parsed)==2:
+                # rate, (metric-name, tags, time)
+                metric, tags, rate = parsed[1]
+            else:
+                # (metric-name, tags, None)
+                metric, tags, rate = parsed
+            if rate:
+                rate, unit = int(rate[1:-2]), rate[-2]
+            else:
+                rate, unit = None, None
+            # convert to seconds.
             if unit=='m':
                 rate *= 60
-        else:
-            metric = split[1]
-            rate = None
+            elif unit=='h':
+                rate *= 60*60
 
-        current = METRICS_BY_NAME[CURRENT]
-        family = METRICS_FAMILY.get(metric, {})
-        if family.get('type') == 'counter':
-            metric += '_total'
-        m = current['metrics'].get(metric)
-        result = blob['data']['result']
-        if m:
-            for tag in m:
-                values = [[_m[0], str(_m[1])] for _m in m[tag]]
-                if values and rate and not (metric.endswith('_count')):
-                    dvalues = pd.DataFrame(values, dtype=float)
-                    diff = dvalues.diff().clip(lower=0)
-                    diff = diff.rolling(rate//60).mean() # TODO: read the time interval from the metric (or scrape).
-                    diff = diff.fillna(0)
-                    dvalues.iloc[:,1:] = diff.iloc[:,1:]
-                    values = dvalues.values.tolist()
 
-                tags = dict([x.split('=') for x in ast.literal_eval(tag)])
-                _metric = {'__name__': metric}
-                _metric.update(tags)
-                result += [{'metric': _metric, 'values': values}]
-        return jsonify(blob)
+            regexes = {}
+            exacts = {}
+            if tags:
+                for tag in tags:
+                    # name ('=', '~') string
+                    name, cmp, string = tag
+                    if cmp[1]=='~':
+                        regexes[name] = string.replace('"', '')
+                    else:
+                        exacts[name] = string.replace('"', '')
+
+            current = METRICS_BY_NAME[CURRENT]
+            family = METRICS_FAMILY.get(metric, {})
+            if family.get('type') == 'counter':
+                metric += '_total'
+            m = current['metrics'].get(metric)
+            result = blob['data']['result']
+            if m:
+                for tag in m:
+                    atag = to_dict(ast.literal_eval(tag))
+                    found = True
+                    for t in exacts:
+                        if exacts.get(t)!=atag.get(t) or not re.match(regexes.get(t, '.*'), atag.get(t, '')):
+                            found = False
+                            break
+                    if not found:
+                        continue
+                    values = [[_m[0], str(_m[1])] for _m in m[tag]]
+                    if values and rate and not (metric.endswith('_count')):
+                        dvalues = pd.DataFrame(values, dtype=float)
+                        diff = dvalues.diff().clip(lower=0)
+                        diff = diff.rolling(rate//60).mean() # TODO: read the time interval from the metric (or scrape).
+                        diff = diff.fillna(0)
+                        dvalues.iloc[:,1:] = diff.iloc[:,1:]
+                        values = dvalues.values.tolist()
+
+                    tags = dict([x.split('=') for x in ast.literal_eval(tag)])
+                    _metric = {'__name__': metric}
+                    _metric.update(tags)
+                    result += [{'metric': _metric, 'values': values}]
+            return jsonify(blob)
+
     except Exception as x:
         shared.trace(x, msg='unable to process prometheus query: ' + query)
         return make_response({'status': 'failed', 'message': 'unable to process prometheus query: ' + query}, 500)
@@ -174,7 +250,8 @@ def miniprom():
                     try:
                         print('scraping: job=' + job + ', endpoint=http://' + target + '/metrics')
                         text = requests.get('http://' + target + '/metrics').text
-                        _time = time.time()
+                        # round timestamps to the scrape interval.
+                        _time = int(time.time())
                         for family in text_string_to_metric_families(text):
                             METRICS_FAMILY[family.name] = {'help': family.documentation, 'type': family.type, 'unit': family.unit}
                             for sample in family.samples:
@@ -186,6 +263,7 @@ def miniprom():
 
                                 if not name in METRICS_BY_NAME[CURRENT]['metrics']:
                                     METRICS_BY_NAME[CURRENT]['metrics'][name] = {}
+                                    METRICS_BY_NAME[CURRENT]['types'][family.name] = METRICS_FAMILY[family.name]['type']
                                 _labels = str([l + '=' + labels[l] for l in sorted(labels)])
                                 if not _labels in METRICS_BY_NAME[CURRENT]['metrics'][name]:
                                     METRICS_BY_NAME[CURRENT]['metrics'][name][_labels] = []

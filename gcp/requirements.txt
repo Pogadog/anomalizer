@@ -56,3 +56,6 @@ confluent-kafka[avro,json,protobuf]>=1.4.2
 
 # export flask endpoints as prometheus metrics
 prometheus-flask-exporter==0.20.3
+
+# recursive descent parse (mimi-prom parser)
+funcparserlib==1.0.0

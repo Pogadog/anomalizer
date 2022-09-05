@@ -77,7 +77,7 @@ def _proxy(*args, **kwargs):
 
 
 app = APIFlask(__name__, title='anomalizer-api', static_folder='web-build')
-metrics = PrometheusMetrics(app)
+metrics = PrometheusMetrics(app, path='/flask/metrics')
 
 PORT = int(os.environ.get('ANOMALIZER_API_PORT', '8056'))
 
@@ -163,6 +163,7 @@ class FilterInSchema(Schema):
     query2 = String(required=False)
     invert2 = Boolean(required=False)
     limit = Float(required=False)
+    server_tags = String(required=False)
 
 @app.post('/filter')
 @app.input(FilterInSchema)
@@ -184,6 +185,17 @@ def figure_id(id):
     endpoint = shared.shard_endpoint(ANOMALIZER_IMAGES, shard)
     return _proxy(endpoint)
 
+@app.route('/prometheus')
+def prometheus():
+    r1 = _proxy(ANOMALIZER_ENGINE)
+    lines = ''
+    lines += '#HELP anomalizer_engine     ************* anomalizer-engine prometheus metrics\n'
+    lines += r1.data.decode() if r1 else '# HELP anomalizer-engine no metrics\n'
+
+    response = make_response(lines, 200)
+    response.mimetype = "text/plain"
+    return response
+
 @app.route('/metrics')
 def metrics():
     # gather the downstreams via the proxy.
@@ -201,13 +213,13 @@ def metrics():
 
     # add in our metrics.
     lines = ''
-    lines += '# HELP anomalizer_engine     ************* anomalizer-engine metrics\n'
+    lines += '#HELP anomalizer_engine     ************* anomalizer-engine metrics\n'
     lines += r1.data.decode() if r1 else '# HELP anomalizer-engine no metrics\n'
     for shard, r in enumerate(r2):
-        lines += '# HELP anomalizer_images     ************* anomalizer-images-' + str(shard) + ' metrics \n'
+        lines += '#HELP anomalizer_images     ************* anomalizer-images-' + str(shard) + ' metrics \n'
         lines += r.data.decode() if r else '# HELP anomalizer-images-' + str(shard) + ' no metrics\n'
     for shard, r in enumerate(r3):
-        lines += '# HELP anomalizer_correlator     ************* anomalizer-correlator-' + str(shard) + ' metrics \n'
+        lines += '#HELP anomalizer_correlator     ************* anomalizer-correlator-' + str(shard) + ' metrics \n'
         lines += r.data.decode() if r else '# HELP anomalizer-correlator-' + str(shard) + ' no metrics\n'
     latest = generate_latest()
     lines += latest.decode()

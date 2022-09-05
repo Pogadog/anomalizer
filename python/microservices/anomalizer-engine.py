@@ -32,7 +32,7 @@ import logging
 logging.getLogger("werkzeug").disabled = True
 
 app = APIFlask(__name__, title='anomalizer-engine')
-metrics = PrometheusMetrics(app)
+metrics = PrometheusMetrics(app, path='/flask/metrics')
 
 PORT = int(os.environ.get('ANOMALIZER_ENGINE_PORT', '8060'))
 
@@ -47,6 +47,7 @@ FILTER = '_created|_count'
 INVERT = True
 FILTER2 = ''
 INVERT2 = False
+SERVER_TAGS = ''
 
 PROMETHEUS = os.environ.get('PROMETHEUS', 'http://localhost:9090')
 META = os.environ.get('PROMETHEUS_META', PROMETHEUS + '/api/v1/metadata')
@@ -84,7 +85,7 @@ if not EXTRA_METRICS:
 if not METRIC_TYPE_MAP:
     METRIC_TYPE_MAP = {}
 
-# keep track of staleness for LABELS, DATAFRAMES, QUERIES and SCATTERGRAMS. if a metric id has not been updated for
+# keep track of staleness for LABELS, DATxAFRAMES, QUERIES and SCATTERGRAMS. if a metric id has not been updated for
 # "DURATION" seconds, then drop it.
 STALEOUT = {}
 
@@ -182,10 +183,36 @@ def metric_map():
 def id_map():
     return jsonify(ID_MAP)
 
+def to_string(dict):
+    result = []
+    for k,v in dict.items():
+        result += [k + '=' + '"' + v + '"']
+    return '{' + ','.join(result) + '}'
+
+@app.route('/prometheus')
+def prometheus():
+    lines = ''
+    # dump the metrics available in our attached prometheus METADATA
+    for metric in METRICS.copy():
+        id = METRIC_MAP.get(metric)
+        if id:
+            meta = METRICS[metric][0]
+            lines += '#TYPE ' + metric + ' ' + meta.get('type', '') + '\n'
+            lines += '#HELP ' + metric + ' ' + meta.get('help', '') + '\n'
+            df = DATAFRAMES[id]
+            labels = LABELS[id]
+            for i, col in enumerate(df.columns):
+                lines += metric + to_string(labels[i]) + ' ' + str(df.iloc[-1, col]) + '\n'
+        # print the values in the DATAFRAME
+    response = make_response(lines, 200)
+    response.mimetype = "text/plain"
+    return response
+
 @app.route('/metrics')
 def metrics():
-    # add in our metrics.
     lines = ''
+
+    # add in our metrics.
     latest = generate_latest()
     lines += latest.decode()
     response = make_response(lines, 200)
@@ -223,11 +250,12 @@ WAITING = 0
 def filter_metrics():
     body = request.json
     if body:
-        global FILTER, INVERT, LIMIT, FILTER2, INVERT2, WAITING
+        global FILTER, INVERT, LIMIT, FILTER2, INVERT2, WAITING, SERVER_TAGS
         FILTER = body.get('query', FILTER)
         INVERT = body.get('invert', INVERT)
         FILTER2 = body.get('query2', FILTER2)
         INVERT2 = body.get('invert2', INVERT2)
+        SERVER_TAGS = body.get('server_tags', SERVER_TAGS).strip()
         # TODO: reflect back to UI, until then, fix at [-1].
         LIMIT = float(body.get('limit', LIMIT))
         # release the pending waiters
@@ -235,7 +263,7 @@ def filter_metrics():
             sem.release()
             WAITING -= 1 # no neeed to lock, the GIL does that for us.
 
-    result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2}
+    result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2, 'server_tags': SERVER_TAGS}
     return jsonify(result)
 
 # long-poll for updates to the server-side filter parameters
@@ -245,7 +273,7 @@ def poll_filter():
     global WAITING
     WAITING += 1
     sem.acquire()
-    result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2}
+    result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2, 'server_tags': SERVER_TAGS}
     return jsonify(result)
 
 
@@ -326,7 +354,7 @@ def refresh_metrics():
 
 def get_prometheus(metric, _rate, _type, step):
     global PROMETHEUS_HEALTHY
-    #print('get_prometheus: ' + metric)
+    print('get_prometheus: ' + metric)
     try:
         labels = []
         values = []
@@ -336,9 +364,12 @@ def get_prometheus(metric, _rate, _type, step):
         if _rate or _type == 'counter':
             rate = 'rate'
             agg = '[5m]'
+        server_tags = ''
+        if SERVER_TAGS:
+            server_tags = '{' + SERVER_TAGS + '}'
 
         import urllib.parse
-        query = urllib.parse.quote(rate + '(' + metric + agg + ')')
+        query = urllib.parse.quote(rate + '(' + metric + server_tags + agg + ')')
 
         PROM = PROMETHEUS + '/api/v1/query_range?query=' + query + '&start=' + str(start) + '&end=' + str(now) + '&step=' + str(step)
 

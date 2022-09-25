@@ -247,6 +247,7 @@ def miniprom():
         while True:
             for mtarget in targets:
                 for target in mtarget['targets']:
+                    target = target.strip()
                     try:
                         print('scraping: job=' + job + ', endpoint=http://' + target + '/metrics')
                         text = requests.get('http://' + target + '/metrics').text

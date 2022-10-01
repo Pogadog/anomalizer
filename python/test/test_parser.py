@@ -21,10 +21,15 @@ class FunctionalExpr:
     op: str
     args: "ArgsExpr"
     rate: "Rate"
+    group: "GroupExpr"
 
 @dataclass
 class ArgsExpr:
     args: "Args"
+
+@dataclass
+class GroupExpr:
+    groupby: "GroupBy"
 
 @dataclass
 class TaggedExpr:
@@ -59,12 +64,14 @@ def to_tags(tags):
 MUL = {'s': 1, 'm': 60, 'h': 60*60}
 
 def to_func(args):
+    args = list(args)
+    group = args.pop(1)
     if args[2]:
         rate = int(args[2][1:-2])
         rate *= MUL[args[2][-2]]
     else:
         rate = 0
-    return FunctionalExpr(args[0], args[1], rate)
+    return FunctionalExpr(args[0], args[1], rate, group)
 
 def to_tagged(args):
     if args[1]:
@@ -73,8 +80,13 @@ def to_tagged(args):
         return args[0]
 
 def to_args(args):
-    result = ArgsExpr([args[0]] +  [a[0] for a in args[1:][0]])
-    return result
+    result = [args[0]]
+    if args[1]:
+        result += [a[0] for a in args[1:][0]]
+    return ArgsExpr(result)
+
+def to_group(args):
+    return GroupExpr(args)
 
 def parse(tokens: List[Token]) -> Expr:
     int_num = tok("int") >> int
@@ -144,14 +156,26 @@ def eval_tree(data: dict, expr: Expr):
     if isinstance(expr, numbers.Number):
         return expr
     if isinstance(expr, BinaryExpr):
-        return OPERATORS[expr.op](eval_tree(data, expr.left), eval_tree(data, expr.right))
+        result = OPERATORS[expr.op](eval_tree(data, expr.left), eval_tree(data, expr.right))
+        if isinstance(result, pd.DataFrame):
+            result = result.dropna(axis=1)
+        return result
     elif isinstance(expr, FunctionalExpr):
         args = eval_tree(data, expr.args)
+        if expr.group:
+            groups = expr.group.groupby[1].args
+            groupby='(' + '|'.join(groups) + ').*'
+            tags = [t.split(',') for t in args.columns]
+            gtags = [[t for t in tt if re.match(groupby, t)] for tt in tags]
+            gtags = [','.join(gt) for gt in gtags]
+            args.columns = gtags
+            args = args.groupby(lambda x:x, axis=1)
+            return getattr(args, expr.op)()
         return FUNCTIONS[expr.op](args, expr.rate)
     elif isinstance(expr, ArgsExpr):
         result = [eval_tree(data, e) for e in expr.args]
         df = pd.concat(result, axis=1)
-        df.columns = expr.args
+        #df.columns = expr.args
         return df
     elif isinstance(expr, TaggedExpr):
         df = eval_tree(data, expr.args[0])
@@ -185,14 +209,15 @@ def eval_tree(data: dict, expr: Expr):
     return data[expr]
 
 expr = forward_decl()
-args = expr + -op(',') + many(expr + maybe(-op(','))) >> to_args
-func = maybe(tok('name')) + -op('(') + (args | expr) + maybe(tok('rate')) + -op(')') >> to_func
+args = expr + -maybe(op(',')) + many(expr + -maybe(op(','))) >> to_args
+group = tok('name') + -op('(') + args + -op(')') >> to_group
+func = maybe(tok('name')) + maybe(group) + -op('(') + (args | expr) + maybe(tok('rate')) + -op(')') >> to_func
 paren = -op('(') + expr + -op(')')
 int_num = tok("int") >> int
 float_num = tok("float") >> float
 number = int_num | float_num
 
-tags = -op('{') + many(tok('name') + (op('=~') | op('=')) + tok('string') + maybe(-op(','))) + -op('}') >> to_tags
+tags = -op('{') + many(tok('name') + (op('=~') | op('=')) + tok('string') + -maybe(op(','))) + -op('}') >> to_tags
 subexpr = (func | paren | tok('name')) + maybe(tags) >> to_tagged | number
 mul = subexpr + many((op('*') | op('/')) + subexpr) >> to_expr
 sum = mul + many((op('+') | op('-')) + mul) >> to_expr
@@ -208,7 +233,14 @@ if __name__=='__main__':
     DATAFRAMES['b'] = pd.DataFrame([4,5,6], columns=['job="1"'])
     DATAFRAMES['c'] = pd.DataFrame([7,8,9], columns=['job="1"'])
     DATAFRAMES['d'] = pd.DataFrame([10,11,12], columns=['job="1"'])
-    DATAFRAMES['e'] = pd.DataFrame([[1,3],[2,2],[3,1]], columns=['job="1", target="2"', 'job="2"'])
+    DATAFRAMES['e'] = pd.DataFrame([[1,3,1],[2,2,0],[3,1,4]], columns=['job="1", target="2"', 'job="2"', 'job="1"'])
+
+    print(document.parse(tokenize('(a+b+e){job="1"}')))
+    print(eval_tree(DATAFRAMES, document.parse(tokenize('(a+b+e){job="1"}'))))
+
+    print(tokenize('sum by(job) (e)'))
+    print(document.parse(tokenize('sum by(job) (e)')))
+    print(eval_tree(DATAFRAMES, document.parse(tokenize('sum by(job) (e)'))))
 
     print(tokenize('rate(anomalizer_active_threads[5m])'))
     print(document.parse(tokenize('rate(anomalizer_active_threads[5m])')))
@@ -225,9 +257,6 @@ if __name__=='__main__':
 
     print(document.parse(tokenize('e{job="1", target=~"2"}')))
     print(eval_tree(DATAFRAMES, document.parse(tokenize('e{job="1",target=~"2"}'))))
-
-    print(document.parse(tokenize('(a+b+e){job="1"}')))
-    print(eval_tree(DATAFRAMES, document.parse(tokenize('(a+b+e){job="1"}'))))
 
     print(document.parse(tokenize('a+b')))
     print(document.parse(tokenize('a+b-c')))

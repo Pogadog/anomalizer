@@ -71,9 +71,12 @@ METRICS = {}
 
 EXTRA_METRICS = {}
 METRIC_TYPE_MAP = {}
+
+PATH = os.environ.get('MICROSERVICES', '')
+
 import yaml
 try:
-    with open('anomalizer-engine.yaml') as file:
+    with open(PATH+'anomalizer-engine.yaml') as file:
         CONFIG = yaml.safe_load(file)
 
     EXTRA_METRICS = CONFIG.get('extra-metrics', {})

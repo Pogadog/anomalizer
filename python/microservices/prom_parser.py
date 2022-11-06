@@ -120,6 +120,8 @@ def eval_tree(data: dict, expr: Expr):
     if isinstance(expr, numbers.Number):
         return expr
     if isinstance(expr, BinaryExpr):
+        if expr.op:
+            print('expression: ' + str(expr))
         return OPERATORS[expr.op](eval_tree(data, expr.left), eval_tree(data, expr.right)).dropna(axis=1).fillna(0)
     elif isinstance(expr, FunctionalExpr):
         args = eval_tree(data, expr.args)

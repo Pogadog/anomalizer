@@ -26,6 +26,11 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:7070', 'load-test-0:7070', 'anomalizer-load-test:7070']
 
+  - job_name: 'node-exporter'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:9100']
+
   #- job_name: 'mini-prom'
   #  scrape_interval: 10s
   #  static_configs:

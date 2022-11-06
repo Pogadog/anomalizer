@@ -196,6 +196,10 @@ def prometheus():
     response.mimetype = "text/plain"
     return response
 
+@app.route('/api/v1/targets')
+def targets():
+    return _proxy(ANOMALIZER_ENGINE)
+
 @app.route('/metrics')
 def metrics():
     # gather the downstreams via the proxy.

@@ -85,6 +85,11 @@ scrape_configs:
     static_configs:
       - targets: ['host.docker.internal:3000']
 
+  - job_name: 'node-exporter'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['node-exporter:9100']
+
 # export to VictoriaMetrics
 #remote_write:
 #  - url: http://host.docker.internal:8428/api/v1/write

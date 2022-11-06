@@ -211,6 +211,13 @@ def prometheus():
     response.mimetype = "text/plain"
     return response
 
+# pass through to HTML targets page in prometheus.
+@app.route('/api/v1/targets')
+def targets():
+    response = requests.get(PROMETHEUS + '/api/v1/targets')
+    response.mimetype = "application/json"
+    return make_response(json.dumps(response.json()), 200)
+
 @app.route('/metrics')
 def metrics():
     lines = ''
@@ -357,7 +364,7 @@ def refresh_metrics():
 
 def get_prometheus(metric, _rate, _type, step):
     global PROMETHEUS_HEALTHY
-    print('get_prometheus: ' + metric)
+    #print('get_prometheus: ' + metric)
     try:
         labels = []
         values = []
@@ -612,7 +619,7 @@ def get_metrics(metric, id, _type=None, _rate=False):
         return labels, values, query, dfp
     except Exception as x:
         shared.trace(x)
-        print('error collecting DATAFRAME: ' + metric + '.' + id, file=sys.stderr)
+        print('error collecting DATAFRAME: ' + metric + ', id=' + id, file=sys.stderr)
         C_EXCEPTIONS_HANDLED.labels(x.__class__.__name__).inc()
         INTERNAL_FAILURE = True
         time.sleep(1)

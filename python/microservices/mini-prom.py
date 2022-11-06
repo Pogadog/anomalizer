@@ -6,7 +6,7 @@
 #   /api/v1/metadata -- metadata about metrics
 #   /api/v1/query_range?query=<metric>>&start=<start>>&end=<end>&step=<step> -- time-series for metrics.
 import json, sys, os, re
-import traceback
+import traceback, datetime
 
 import shared
 
@@ -41,6 +41,7 @@ def health():
 PORT = int(os.environ.get('MINIPROM_PORT', '9090'))
 
 CONFIG = None
+TARGET_STATUS = {}
 
 # METRICS_BY_NAME = [(start, end, metrics={name: [time, {sorted(tags): value}]
 RESOLUTION = 60
@@ -65,6 +66,14 @@ def metrics():
 def metrics_by_name():
     return jsonify(METRICS_BY_NAME)
 
+@server.route('/metric-names')
+def names():
+    return jsonify(sorted(METRICS_BY_NAME[CURRENT]['metrics'].keys()))
+
+@server.route('/api/v1/targets')
+def targets():
+    # TODO: make the json schema align with the prometheus schema.
+    return jsonify(TARGET_STATUS)
 
 '''
 blob = {
@@ -244,15 +253,25 @@ def miniprom():
     print(yaml.dump(CONFIG))
 
     def scraper(job, targets, scrape_interval):
+        TARGET_STATUS[job] = {'status': 'down'}
         while True:
             for mtarget in targets:
                 for target in mtarget['targets']:
                     target = target.strip()
+                    if not target in TARGET_STATUS[job]:
+                        TARGET_STATUS[job][target] = {}
                     try:
-                        print('scraping: job=' + job + ', endpoint=http://' + target + '/metrics')
-                        text = requests.get('http://' + target + '/metrics').text
                         # round timestamps to the scrape interval.
                         _time = int(time.time())
+                        TARGET_STATUS[job][target]['last_scrape'] = _time
+                        value = datetime.datetime.fromtimestamp(_time)
+                        TARGET_STATUS[job][target]['last_scrape_date'] = value.strftime('%Y-%m-%d %H:%M:%S')
+
+                        endpoint = 'http://' + target + '/metrics'
+                        TARGET_STATUS[job][target]['endpoint'] = endpoint
+                        print('scraping: job=' + job + ', endpoint=' + endpoint)
+                        text = requests.get(endpoint).text
+                        TARGET_STATUS[job][target]['status'] = 'up'
                         for family in text_string_to_metric_families(text):
                             METRICS_FAMILY[family.name] = {'help': family.documentation, 'type': family.type, 'unit': family.unit}
                             for sample in family.samples:
@@ -282,6 +301,7 @@ def miniprom():
                     except Exception as x:
                         # shared.trace(x, msg='scrape exception')
                         # traceback.print_exc()
+                        TARGET_STATUS[job][target]['status'] = 'down'
                         pass
             time.sleep(scrape_interval)
 
@@ -319,7 +339,6 @@ def miniprom():
         
         # start thread to checkpoint the state one a per-minugte basis
         threading.Thread(target=checkpoint).start()
-        
 
     if os.environ.get('RESTORE_STATE', 'False')=='True':
         try:

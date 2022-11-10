@@ -8,7 +8,7 @@ It operates by scraping metrics out of Prometheus, generating images, analyzing 
 ![](images/anomalizer.gif)
 
 ## Quick start
-Use `docker-compose` to launch a Prometheus engine, `anomalizer`, `anomalizer-ui` and a
+Use `docker-compose` to launch a `mini-prometheus engine`, `anomalizer`, and a
 `load-test` to generate data.
 ```sh
   cd docker
@@ -17,7 +17,15 @@ Use `docker-compose` to launch a Prometheus engine, `anomalizer`, `anomalizer-ui
 
 ```
 
-The Anomalizer backend serves on port `8056`. There are various REST
+or without docker-compose, launch a mini-promtheus and a load tester scraped by it:
+
+```sh
+docker run -p 8056:8056 -it ghcr.io/pogadog/anomalizer-multi:latest --mini-prom --load-test 
+```
+
+To point to a real prometheus on localhost:9090 just omit the --mini-prom argument.
+
+The Anomalizer UI serves on port `8056`. There are various REST
 endpoints, some of which are used by the Anomalizer UI. It connects to Prometheus
 on `localhost:9090` by default; this can be overridden in the YAML compose file `docker/anomalizer-compose.yaml` or 
 on the command line by setting the `PROMETHEUS` environment variable. 
@@ -26,10 +34,14 @@ on the command line by setting the `PROMETHEUS` environment variable.
 environment:
 - PROMETHEUS=host.docker.internal:9090
 ```
+example rest endpoints:
 
 * http://localhost:8056/server-metrics
 * http://localhost:8056/images/html
 * http://localhost:8056/images
+
+swagger documentation:
+* http://localhost:8056/docs
 
 ## Building for the AppEngine Cloud
 

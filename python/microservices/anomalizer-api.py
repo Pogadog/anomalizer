@@ -106,6 +106,14 @@ def _dash_update_component():
 def ids():
     return _proxy(ANOMALIZER_ENGINE)
 
+@app.route('/dataframes')
+def dataframes():
+    return _proxy(ANOMALIZER_ENGINE)
+
+@app.route('/metric_map')
+def metric_map():
+    return _proxy(ANOMALIZER_ENGINE)
+
 @app.route('/images')
 def images():
 

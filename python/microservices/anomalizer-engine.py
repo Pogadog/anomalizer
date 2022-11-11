@@ -231,7 +231,9 @@ def metrics():
 
 @app.route('/server-metrics')
 def server_metrics():
-    sm = {'uptime': int(time.time()-START_TIME), 'poll-time': POLL_TIME, 'metric-count': len(METRICS), 'metrics-processed': METRICS_PROCESSED, 'metrics-available': METRICS_AVAILABLE, 'metrics-dropped': METRICS_DROPPED, 'metrics-total-ts': METRICS_TOTAL_TS}
+    sm = {'uptime': int(time.time()-START_TIME), 'poll-time': POLL_TIME, 'metric-count': len(METRICS), 
+          'metrics-processed': METRICS_PROCESSED, 'metrics-available': METRICS_AVAILABLE, 'metrics-dropped': METRICS_DROPPED, 
+          'metrics-total-ts': METRICS_TOTAL_TS, 'memmory-vms-GB': shared.G_MEMORY_VMS._value.get(), 'memory-rss-GB': shared.G_MEMORY_RSS._value.get()}
     #print(sm)
     return jsonify(sm)
 

@@ -57,10 +57,20 @@ LABELS = {}
 GRID_IMAGES = defaultdict(defaultdict)
 GRID_EXPIRES = 300 # seconds
 
+START_TIME = time.time()
+
 app = APIFlask(__name__, title='anomalizer-images')
 metrics = PrometheusMetrics(app, path='/flask/metrics')
 
 PORT = int(os.environ.get('ANOMALIZER_IMAGES_PORT', str(SHARD*10000+8061)))
+
+@app.route('/server-metrics')
+def server_metrics():
+    sm = {'uptime': int(time.time()-START_TIME), 'image-count': len(IMAGES),
+          'memmory-vms-GB': shared.G_MEMORY_VMS._value.get(), 'memory-rss-GB': shared.G_MEMORY_RSS._value.get()}
+    #print(sm)
+    return jsonify(sm)
+
 
 @app.route('/health')
 def health():

@@ -299,6 +299,7 @@ def miniprom():
                         #for name in METRICS_BY_NAME[CURRENT]['metrics']:
                         #    print(name + ': ' + str(METRICS_BY_NAME[CURRENT]['metrics'][name]))
                     except Exception as x:
+                        print('scrape ' + target + ' failed: ' + str(x))
                         # shared.trace(x, msg='scrape exception')
                         # traceback.print_exc()
                         TARGET_STATUS[job][target]['status'] = 'down'

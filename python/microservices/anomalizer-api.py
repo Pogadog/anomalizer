@@ -138,7 +138,19 @@ def images_html():
 
 @app.route('/server-metrics')
 def server_metrics():
-    return _proxy(ANOMALIZER_ENGINE)
+    images = {}
+    for i in range(0, shared.I_SHARDS):
+        # TODO: some kind of discovery here, rather than hard-wired ports
+        endpoint = shared.shard_endpoint(ANOMALIZER_IMAGES, i)
+        response = _proxy(endpoint)
+        if response:
+            images.update({endpoint: response.json})
+    engine = {}
+    response = _proxy(ANOMALIZER_ENGINE)
+    if response:
+        engine = response.json
+    result = {'anomalizer-engine': engine, 'anomalizer-images': images}
+    return jsonify(result)
 
 @app.route('/correlate/<id>')
 def correlate_id(id):

@@ -23,7 +23,7 @@ or without docker-compose, launch a mini-promtheus and a load tester scraped by 
 docker run -p 8056:8056 -it ghcr.io/pogadog/anomalizer-multi:latest --mini-prom --load-test 
 ```
 
-To point to a real prometheus on localhost:9090 just omit the --mini-prom argument.
+To point to a real prometheus on localhost:9090 just omit the --mini-prom argument, and set `-e PROMETHEUS=host.docker.internal:9090`
 
 The Anomalizer UI serves on port `8056`. There are various REST
 endpoints, some of which are used by the Anomalizer UI. It connects to Prometheus

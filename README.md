@@ -76,7 +76,7 @@ service here update the behavior (I've done this plenty of times).
 
 ## Debugging on a desktop machine
 
-Simply load the `anomalizer.py` file into a Python IDE environment, after installing the
+Simply load the `anomalizer-service.py` file into a Python IDE environment, after installing the
 `requirements.txt` into a virtual-env (such as pyenv). Make sure to stop the Docker version 
 of the Anomalizer before running the stand-alone version.
 

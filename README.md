@@ -122,7 +122,7 @@ example uses the arm64 build for Anomalizer, so will only work on Apple-silicon 
 a multi-arch build is in the works.
 
 ```sh
-    docker run -e ENDPOINT=localhost:8056 -p 3001:3001 -it ghcr.io/pogadog/anomalizer-ui-arm64:latest
+    docker run -e ENDPOINT=localhost:8056 -p 3001:3001 -it ghcr.io/pogadog/anomalizer-ui/anomalizer-ui-multi:latest
 ```
 
 Alternatively you can run the UI by following the instructions here: https://github.com/Pogadog/anomalizer-ui

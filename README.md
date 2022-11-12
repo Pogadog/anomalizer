@@ -84,7 +84,8 @@ of the Anomalizer before running the stand-alone version.
     pyenv install 3.8
     pyenv local 3.8
     pip install -r requirements.txt
-    python anomalizer.py
+    cd python/microservices    
+    python anomalizer-service.py
      
 Anomalizer(TM) by Pogadog. Copyright (C) 2022. All Rights Reserved.
 prometheus is on: http://localhost:9090

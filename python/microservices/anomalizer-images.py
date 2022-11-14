@@ -65,6 +65,7 @@ metrics = PrometheusMetrics(app, path='/flask/metrics')
 PORT = int(os.environ.get('ANOMALIZER_IMAGES_PORT', str(SHARD*10000+8061)))
 
 @app.route('/server-metrics')
+@app.route('/v2/server-metrics')
 def server_metrics():
     sm = {'uptime': int(time.time()-START_TIME), 'image-count': len(IMAGES),
           'memmory-vms-GB': shared.G_MEMORY_VMS._value.get(), 'memory-rss-GB': shared.G_MEMORY_RSS._value.get()}
@@ -353,7 +354,6 @@ def poll_images():
                         img_b64 = to_image(fig)
 
                         IMAGES[id] = {'type': type, 'plot': 'timeseries', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric, 'cardinality': cardinality, 'tags': labels, 'stats': stats}
-
 
                     except Exception as x:
                         shared.trace(x, msg='error polling image: ')

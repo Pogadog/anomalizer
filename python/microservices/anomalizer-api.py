@@ -138,6 +138,10 @@ def images_html():
 
 @app.route('/server-metrics')
 def server_metrics():
+    return _proxy(ANOMALIZER_ENGINE)
+
+@app.route('/v2/server-metrics')
+def v2_server_metrics():
     images = {}
     for i in range(0, shared.I_SHARDS):
         # TODO: some kind of discovery here, rather than hard-wired ports

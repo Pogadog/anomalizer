@@ -279,7 +279,7 @@ def miniprom():
                                 #print('  scraping ' + name)
                                 value = sample.value
                                 labels = sample.labels
-                                labels.update({'job': job, 'instance': target})
+                                labels.update({'job': job, 'instance': target, 'prometheus': 'miniprom:' + str(PORT)})
 
                                 if not name in METRICS_BY_NAME[CURRENT]['metrics']:
                                     METRICS_BY_NAME[CURRENT]['metrics'][name] = {}

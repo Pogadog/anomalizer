@@ -42,6 +42,9 @@ INVERT = False
 INCREASE_THRESH = 0.5
 DECREASE_THRESH = -0.25
 
+HIGH_CARD = 100
+MED_CARD = 20
+
 LIMIT = float(os.environ.get('LIMIT', shared.LIMITS[-2]))
 FILTER = '_created|_count'
 INVERT = True
@@ -230,6 +233,7 @@ def metrics():
     return response
 
 @app.route('/server-metrics')
+@app.route('/v2/server-metrics')
 def server_metrics():
     sm = {'uptime': int(time.time()-START_TIME), 'poll-time': POLL_TIME, 'metric-count': len(METRICS), 
           'metrics-processed': METRICS_PROCESSED, 'metrics-available': METRICS_AVAILABLE, 'metrics-dropped': METRICS_DROPPED, 
@@ -477,7 +481,7 @@ def get_metrics(metric, id, _type=None, _rate=False):
         # add in tags to the match. TODO: align this with the match strings on the UI
         # big step first to filter.
         labels, values, query = get_prometheus(metric+filter_tags, _rate, _type, STEP*20)
-        cardinality = 'high' if labels and len(labels) > 100 else 'medium' if labels and len(labels) > 10 else 'low'
+        cardinality = 'high' if labels and len(labels) > HIGH_CARD else 'medium' if labels and len(labels) > MED_CARD else 'low'
         match = metric + json.dumps({'tags': labels}) + ',' + _type + ',' + json.dumps({'cardinality': cardinality})
         if FILTER:
             if (re.match('.*(' + FILTER + ').*', match)==None) != INVERT:
@@ -857,8 +861,15 @@ def poll_metrics():
             if idi in CLASSIFY_DATA:
                 CLASSIFY_DATA.drop([idi], axis=1, inplace=True)
 
-
     INDEX += 1
+
+    for _i, id in enumerate(DATAFRAMES):
+        if _i%3==0:
+            STATUS[id] = Status.CRITICAL
+        elif _i%3==1:
+            STATUS[id] = Status.WARNING
+        else:
+            STATUS[id] = Status.NORMAL
 
     time.sleep(1)
 

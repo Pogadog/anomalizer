@@ -25,6 +25,9 @@ SENTRY_KEY = os.environ.get('SENTRY_KEY')
 I_SHARDS = int(os.environ.get('I_SHARDS', '1'))
 I_SHARD = int(os.environ.get('I_SHARD', '0'))
 
+E_SHARDS = int(os.environ.get('E_SHARDS', '1'))
+E_SHARD = int(os.environ.get('E_SHARD', '0'))
+
 if SENTRY_KEY:
     import sentry_sdk
     from sentry_sdk.integrations.flask import FlaskIntegration

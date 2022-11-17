@@ -7,7 +7,8 @@ scrape_configs:
   - job_name: 'anomalizer-engine'
     scrape_interval: 10s
     static_configs:
-      - targets: ['localhost:8060', 'anomalizer-engine:8060']
+      - targets: ['localhost:8060', 'localhost:18060', 'localhost:28060',
+          'anomalizer-engine:8060', 'anomalizer-engine-1:8060', 'anomalizer-engine-2:8060']
 
   - job_name: 'anomalizer-images'
     scrape_interval: 10s

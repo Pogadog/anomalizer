@@ -75,6 +75,45 @@ def _proxy(*args, **kwargs):
             ANOMALIZER_CORRELATOR_HEALTHY = Health.DOWN
         return make_response({'status': 'down', 'endpoint': url}, 502)
 
+def _proxy_merge(result, _endpoint, shards, _div=1):
+    headers = {}
+    for i in range(0, shards):
+        # TODO: some kind of discovery here, rather than hard-wired ports
+        endpoint = shared.shard_endpoint(_endpoint, i)
+        data = _proxy(endpoint)
+        if data:
+            headers = data.headers
+            _merge(result, data.json, _div)
+    # use the headers from the image response to make a valid response here.
+    response = Response(bytes(json.dumps(result), 'utf-8'), 200, headers)
+    return response
+
+# merge b into a: by top-level keys: list -> extend, dict -> update.
+def _merge(a, b, _div=1):
+    if isinstance(a, list):
+        if isinstance(b, list):
+            a.extend(b)
+        else:
+            a.extend([b])
+    else:
+        for k,v in b.items():
+            if isinstance(v, list):
+                if not k in a:
+                    a[k] = []
+                a[k].extend(v)
+            elif isinstance(v, dict):
+                if not k in a:
+                    a[k] = {}
+                a[k] |= v
+            elif isinstance(v, float) | isinstance(v, int):
+                if not k in a:
+                    a[k] = 0
+                a[k] += int(v/_div)
+            elif isinstance(v, str):
+                a |= {k: v}
+            else:
+                raise Exception('illegal merge type: ' + type(v))
+    return a
 
 app = APIFlask(__name__, title='anomalizer-api', static_folder='web-build')
 metrics = PrometheusMetrics(app, path='/flask/metrics')
@@ -104,15 +143,37 @@ def _dash_update_component():
 
 @app.route('/ids')
 def ids():
-    return _proxy(ANOMALIZER_ENGINE)
+    return _proxy_merge([], ANOMALIZER_ENGINE, shared.E_SHARDS)
 
 @app.route('/dataframes')
 def dataframes():
-    return _proxy(ANOMALIZER_ENGINE)
+    return _proxy_merge({}, ANOMALIZER_ENGINE, shared.E_SHARDS)
+
+'''
+@app.route('/dataframes')
+def dataframes():
+    dataframes = {}
+    headers = {}
+    for i in range(0, shared.E_SHARDS):
+        # TODO: some kind of discovery here, rather than hard-wired ports
+        endpoint = shared.shard_endpoint(ANOMALIZER_ENGINE, i)
+        dataframe = _proxy(endpoint)
+        if dataframe:
+            headers = dataframe.headers
+            print('shard=' + str(i) + ', #dataframes=' + str(len(dataframe.json)))
+            _merge(dataframes, dataframe.json)
+    # use the headers from the image response to make a valid response here.
+    response = Response(bytes(json.dumps(dataframes), 'utf-8'), 200, headers)
+    return response
+'''
+
+@app.route('/scattergrams')
+def scattergrams():
+    return _proxy_merge({}, ANOMALIZER_ENGINE, shared.E_SHARDS)
 
 @app.route('/metric_map')
 def metric_map():
-    return _proxy(ANOMALIZER_ENGINE)
+    return _proxy_merge({}, ANOMALIZER_ENGINE, shared.E_SHARDS)
 
 @app.route('/images')
 def images():
@@ -138,7 +199,7 @@ def images_html():
 
 @app.route('/server-metrics')
 def server_metrics():
-    return _proxy(ANOMALIZER_ENGINE)
+    return _proxy_merge({}, ANOMALIZER_ENGINE, shared.E_SHARDS, _div=shared.E_SHARDS)
 
 @app.route('/v2/server-metrics')
 def v2_server_metrics():
@@ -149,11 +210,18 @@ def v2_server_metrics():
         response = _proxy(endpoint)
         if response:
             images.update({endpoint: response.json})
-    engine = {}
-    response = _proxy(ANOMALIZER_ENGINE)
-    if response:
-        engine = response.json
-    result = {'anomalizer-engine': engine, 'anomalizer-images': images}
+        else:
+            images.update({endpoint: {'status': response.status_code}})
+    engines = {}
+    for i in range(0, shared.E_SHARDS):
+        # TODO: some kind of discovery here, rather than hard-wired ports
+        endpoint = shared.shard_endpoint(ANOMALIZER_ENGINE, i)
+        response = _proxy(endpoint)
+        if response:
+            engines.update({endpoint: response.json})
+        else:
+            engines.update({endpoint: {'status': response.status_code}})
+    result = {'anomalizer-engines': engines, 'anomalizer-images': images}
     return jsonify(result)
 
 @app.route('/correlate/<id>')
@@ -179,7 +247,7 @@ def correlate_all():
 
 @app.route('/features')
 def features():
-    return _proxy(ANOMALIZER_IMAGES)
+    return _proxy_merge({}, ANOMALIZER_IMAGES, shared.I_SHARDS)
 
 class FilterInSchema(Schema):
     query = String(required=False)
@@ -192,15 +260,15 @@ class FilterInSchema(Schema):
 @app.post('/filter')
 @app.input(FilterInSchema)
 def filter_metrics_post(body):
-    return _proxy(ANOMALIZER_ENGINE)
+    return _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, shared.E_SHARD))
 
 @app.get('/filter')
 def filter_metrics_get():
-    return _proxy(ANOMALIZER_ENGINE)
+    return _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, shared.E_SHARD))
 
 @app.get('/poll_filter')
 def poll_filter():
-    return _proxy(ANOMALIZER_ENGINE)
+    return _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, shared.E_SHARD))
 
 @app.route('/figure/<id>')
 def figure_id(id):
@@ -211,7 +279,7 @@ def figure_id(id):
 
 @app.route('/prometheus')
 def prometheus():
-    r1 = _proxy(ANOMALIZER_ENGINE)
+    r1 = _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, shared.E_SHARD))
     lines = ''
     lines += '#HELP anomalizer_engine     ************* anomalizer-engine prometheus metrics\n'
     lines += r1.data.decode() if r1 else '# HELP anomalizer-engine no metrics\n'
@@ -222,12 +290,16 @@ def prometheus():
 
 @app.route('/api/v1/targets')
 def targets():
-    return _proxy(ANOMALIZER_ENGINE)
+    return _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, shared.E_SHARD))
 
 @app.route('/metrics')
 def metrics():
     # gather the downstreams via the proxy.
-    r1 = _proxy(ANOMALIZER_ENGINE)
+    r1 =[]
+    for shard in range(shared.E_SHARDS):
+        result = _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, shard))
+        if result:
+            r1 += [result]
     r2 = []
     for shard in range(shared.I_SHARDS):
         result = _proxy(shared.shard_endpoint(ANOMALIZER_IMAGES, shard))
@@ -241,8 +313,9 @@ def metrics():
 
     # add in our metrics.
     lines = ''
-    lines += '#HELP anomalizer_engine     ************* anomalizer-engine metrics\n'
-    lines += r1.data.decode() if r1 else '# HELP anomalizer-engine no metrics\n'
+    for shard, r in enumerate(r1):
+        lines += '#HELP anomalizer_engine     ************* anomalizer-engine metrics\n'
+        lines += r1.data.decode() if r1 else '# HELP anomalizer-engine-' + str(shard) + ' no metrics\n'
     for shard, r in enumerate(r2):
         lines += '#HELP anomalizer_images     ************* anomalizer-images-' + str(shard) + ' metrics \n'
         lines += r.data.decode() if r else '# HELP anomalizer-images-' + str(shard) + ' no metrics\n'
@@ -281,7 +354,8 @@ def serve(path):
 def proxy(path):
     print('proxy: ' + path)
     if 'engine/' in path:
-        return _proxy(ANOMALIZER_ENGINE)
+        # random load-balancing.
+        return _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, random.randint(0, shared.E_SHARDS-1)))
     if 'images/' in path:
         # random load-balancing.
         result = _proxy(shared.shard_endpoint(ANOMALIZER_IMAGES, random.randint(0, shared.I_SHARDS-1)))
@@ -294,7 +368,7 @@ def proxy(path):
 
 @app.route('/tags')
 def tags():
-    return _proxy(ANOMALIZER_ENGINE)
+    return _proxy_merge({}, ANOMALIZER_ENGINE, shared.E_SHARDS)
 
 if __name__ == '__main__':
     try:

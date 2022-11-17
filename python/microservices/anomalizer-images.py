@@ -42,6 +42,7 @@ logging.getLogger("werkzeug").disabled = True
 
 # rest endpoints.
 ANOMALIZER_ENGINE = os.environ.get('ANOMALIZER_ENGINE', 'http://localhost:8060')
+ANOMALIZER_API = os.environ.get('ANOMALIZER_API', 'http://localhost:8056')
 
 ANOMALIZER_ENGINE_HEALTHY = False
 ANOMALIZER_IMAGES_HEALTHY = False
@@ -312,7 +313,7 @@ def poll_images():
                 # 3. convert to an image and cache.
                 # 4. bulk queries.
 
-                dataframes = requests.get(ANOMALIZER_ENGINE + '/dataframes')
+                dataframes = requests.get(ANOMALIZER_API + '/dataframes')
                 assert dataframes.status_code == 200, 'unable to get engine/dataframes'
                 dataframes = dataframes.json()
                 # in-place translation of incoming dataframes.
@@ -359,7 +360,7 @@ def poll_images():
                         shared.trace(x, msg='error polling image: ')
 
                 # scattergrams.
-                result = requests.get(ANOMALIZER_ENGINE + '/scattergrams')
+                result = requests.get(ANOMALIZER_API + '/scattergrams')
                 assert result.status_code == 200, 'unable to call engine/scattergrams'
                 result = result.json()
                 for scat_id, v in result.items():
@@ -434,8 +435,8 @@ def cleanup():
     while True:
         try:
             # reconcile image ids with engine ids, and remove any images that no longer exist.
-            ids = requests.get(ANOMALIZER_ENGINE + '/ids')
-            assert ids.status_code==200, 'unable to contact engine at ' + ANOMALIZER_ENGINE + '/ids'
+            ids = requests.get(ANOMALIZER_API + '/ids')
+            assert ids.status_code==200, 'unable to contact engine at ' + ANOMALIZER_API + '/ids'
             ids = ids.json()
             for id in list(IMAGES.keys())[:]:
                 id = id.split('.')[0]

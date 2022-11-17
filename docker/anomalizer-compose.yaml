@@ -3,13 +3,18 @@ services:
 
   # anomalizer
   anomalizer:
-      image: ghcr.io/pogadog/anomalizer-multi:latest
+    image: ghcr.io/pogadog/anomalizer-multi:latest
     command: --mini-prom --load-test
     ports:
       - "8056:8056"
+    environment:
+      - E_SHARDS=${E_SHARDS:-1}
+      - I_SHARDS=${I_SHARDS:-1}
     #environment:
     # - PROMETHEUS=host.docker.internal:9090 # change this port to point to another prometheus.
     # - LOKI=http://host.docker.internal:3100
+    # - E_SHARDS=1
+    # - I_SHARDS=1
     #depends_on:
       #- anomalizer-prometheus
       #- mini-prom

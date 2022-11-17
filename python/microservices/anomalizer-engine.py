@@ -34,7 +34,11 @@ logging.getLogger("werkzeug").disabled = True
 app = APIFlask(__name__, title='anomalizer-engine')
 metrics = PrometheusMetrics(app, path='/flask/metrics')
 
-PORT = int(os.environ.get('ANOMALIZER_ENGINE_PORT', '8060'))
+SHARDS = shared.E_SHARDS
+SHARD = shared.E_SHARD
+
+PORT = int(os.environ.get('ANOMALIZER_ENGINE_PORT', str(SHARD*10000+8060)))
+print('ANOMALIZER-ENGINE PORT=' + str(PORT))
 
 DURATION = 60*60*3
 STEP = 60
@@ -183,6 +187,7 @@ def metric_types():
 
 @app.route('/metric_map')
 def metric_map():
+    print('PORT=' + str(PORT) + ', #METRIC_MAP=' + str(len(METRIC_MAP)))
     return jsonify(METRIC_MAP)
 
 @app.route('/id_map')
@@ -708,7 +713,10 @@ def poll_metrics():
             _type = METRIC_TYPES.get(metric, '')
             if shared.args.verbose:
                 print('poll-metrics: ' + metric + ': ' + _type)
-            id = METRIC_MAP.get(metric, str(uuid.uuid4()))
+            id = METRIC_MAP.get(metric, str(uuid.uuid5(uuid.NAMESPACE_OID, metric)))
+            if shared.shard(id, SHARDS) != SHARD:
+                continue
+
             _rate=_type=='counter' or _type=='summary'
             query = dict(METRICS[metric][0]).get('query', metric)
             labels, values, query, dfp = get_metrics(query, id, _type, _rate=_type=='counter' or _type=='summary')
@@ -863,6 +871,7 @@ def poll_metrics():
 
     INDEX += 1
 
+    '''
     for _i, id in enumerate(DATAFRAMES):
         if _i%3==0:
             STATUS[id] = Status.CRITICAL
@@ -870,6 +879,7 @@ def poll_metrics():
             STATUS[id] = Status.WARNING
         else:
             STATUS[id] = Status.NORMAL
+    '''
 
     time.sleep(1)
 

@@ -30,7 +30,9 @@ try:
     ENV = os.environ
     if args.load_test:
         processes.append(subprocess.Popen(CMD.replace('{service}', 'load-test').split() + [PATH + 'load-test.py'], close_fds=False))
-    processes.append(subprocess.Popen(CMD.replace('{service}', 'anomalizer-engine').split() + [PATH + 'anomalizer-engine.py'], close_fds=False, env=ENV.update({'PROMETHEUS': PROMETHEUS})))
+    ENV['SHARDS'] = str(os.environ.get('E_SHARDS', 1))
+    for i in range(0, int(ENV['SHARDS'])):
+        processes.append(subprocess.Popen(CMD.replace('{service}', 'anomalizer-engine-' + str(i)).split() + [PATH + 'anomalizer-engine.py'], close_fds=False, env=ENV.update({'PROMETHEUS': PROMETHEUS, 'E_SHARD': str(i)})))
     time.sleep(SLEEP)
     ENV['SHARDS'] = str(os.environ.get('I_SHARDS', 1))
     for i in range(0, int(ENV['SHARDS'])):

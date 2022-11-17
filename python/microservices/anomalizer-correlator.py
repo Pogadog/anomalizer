@@ -24,6 +24,7 @@ import logging
 logging.getLogger("werkzeug").disabled = True
 
 ANOMALIZER_ENGINE = os.environ.get('ANOMALIZER_ENGINE', 'http://localhost:8060')
+ANOMALIZER_API = os.environ.get('ANOMALIZER_API', 'http://localhost:8056')
 LIMIT = shared.LIMITS[-2]
 
 app = APIFlask(__name__, title='anomalizer-correlator')
@@ -86,7 +87,7 @@ def poll_dataframes():
     while True:
         with S_POLL_METRICS.time():
             try:
-                result = requests.get(ANOMALIZER_ENGINE + '/dataframes')
+                result = requests.get(ANOMALIZER_API + '/dataframes')
                 assert result.status_code == 200, 'unable to call engine/dataframes'
                 ANOMALIZER_ENGINE_HEALTHY = True
                 dataframes = result.json()['dataframes']

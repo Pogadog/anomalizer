@@ -315,7 +315,7 @@ def metrics():
     lines = ''
     for shard, r in enumerate(r1):
         lines += '#HELP anomalizer_engine     ************* anomalizer-engine metrics\n'
-        lines += r1.data.decode() if r1 else '# HELP anomalizer-engine-' + str(shard) + ' no metrics\n'
+        lines += r.data.decode() if r else '# HELP anomalizer-engine-' + str(shard) + ' no metrics\n'
     for shard, r in enumerate(r2):
         lines += '#HELP anomalizer_images     ************* anomalizer-images-' + str(shard) + ' metrics \n'
         lines += r.data.decode() if r else '# HELP anomalizer-images-' + str(shard) + ' no metrics\n'

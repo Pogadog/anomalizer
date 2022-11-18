@@ -16,6 +16,7 @@ kaleido==0.2.1
 MarkupSafe==2.1.0
 numpy==1.22.3
 pandas==1.4.1
+sklearn==0.0
 plotly==5.6.0
 python-dateutil==2.8.2
 pytz==2021.3
@@ -52,10 +53,13 @@ sentry-sdk[flask]==1.6.0
 python-logging-loki==0.3.1
 
 # kafka
-confluent-kafka[avro,json,protobuf]>=1.4.2
+#confluent-kafka[avro,json,protobuf]>=1.4.2
 
 # export flask endpoints as prometheus metrics
 prometheus-flask-exporter==0.20.3
 
 # recursive descent parse (mimi-prom parser)
-funcparserlib==1.0.0
+funcparserlib==1.0.
+
+opentelemetry-distro==0.35b0
+opentelemetry-instrumentation==0.35b0

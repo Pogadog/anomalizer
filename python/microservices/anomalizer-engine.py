@@ -23,8 +23,6 @@ warnings.simplefilter('ignore', np.linalg.LinAlgError)
 warnings.filterwarnings('ignore', category=RuntimeWarning, module='numpy')
 warnings.simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
-shared.hook_logging('engine')
-
 H_PROMETHEUS_CALL = Histogram('anomalizer_prometheus_request_latency', 'request latency for prometheus metrics')
 S_POLL_METRICS = shared.S_POLL_METRICS.labels('engine')
 
@@ -36,6 +34,8 @@ metrics = PrometheusMetrics(app, path='/flask/metrics')
 
 SHARDS = shared.E_SHARDS
 SHARD = shared.E_SHARD
+
+shared.hook_logging('engine-' + str(SHARD))
 
 PORT = int(os.environ.get('ANOMALIZER_ENGINE_PORT', str(SHARD*10000+8060)))
 print('ANOMALIZER-ENGINE PORT=' + str(PORT))
@@ -301,7 +301,7 @@ def poll_filter():
 def cleanup(id):
     try:
         metric = ID_MAP.get(id)
-        #print('cleanup: id=' + id + ', metric=' + metric)
+        #print('cleanup: id=' + id + ', metriCriticalc=' + metric)
         ID_MAP.pop(id, None)
         METRIC_MAP.pop(metric, None)
         DATAFRAMES.pop(id, None)
@@ -871,15 +871,14 @@ def poll_metrics():
 
     INDEX += 1
 
-    '''
-    for _i, id in enumerate(DATAFRAMES):
-        if _i%3==0:
-            STATUS[id] = Status.CRITICAL
-        elif _i%3==1:
-            STATUS[id] = Status.WARNING
-        else:
-            STATUS[id] = Status.NORMAL
-    '''
+    if bool(os.environ.get('SYNTHETIC_STATUS', 'False')):
+        for _i, id in enumerate(DATAFRAMES):
+            if _i%3==0:
+                STATUS[id] = Status.CRITICAL
+            elif _i%3==1:
+                STATUS[id] = Status.WARNING
+            else:
+                STATUS[id] = Status.NORMAL
 
     time.sleep(1)
 

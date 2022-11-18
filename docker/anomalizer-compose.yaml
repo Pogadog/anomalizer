@@ -10,6 +10,7 @@ services:
     environment:
       - E_SHARDS=${E_SHARDS:-1}
       - I_SHARDS=${I_SHARDS:-1}
+      - SYNTHETIC_STATUS=${SYNTHETIC_STATUS:-False}
     #environment:
     # - PROMETHEUS=host.docker.internal:9090 # change this port to point to another prometheus.
     # - LOKI=http://host.docker.internal:3100

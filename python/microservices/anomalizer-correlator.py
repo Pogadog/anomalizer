@@ -34,7 +34,7 @@ PORT = int(os.environ.get('ANOMALIZER_CORRELATOR_PORT', str(C_SHARD*10000+8062))
 N_CORR = 8
 
 S_CORRELATE = Summary('anomalizer_correlation_time_seconds', 'time to compute correlation', ('mode',))
-G_CORRELATE = Gauge('anomalizer_correlation_time_gauge', 'time to compute (gauge)')
+C_CORRELATE = Counter('anomalizer_correlation_metrics', 'number of metrics being correlated (counter)')
 
 S_CORRELATE_ID = S_CORRELATE.labels('id')
 S_CORRELATE_ALL = S_CORRELATE.labels('all')
@@ -133,7 +133,7 @@ def correlate(id, negative):
     #print('H_PROMETHEUS_CALL: ' + str(samples))
     scorr = S_CORRELATE_ALL if id=='all' else S_CORRELATE_ID
     tcorr = T_CORRELATE_ALL if id=='all' else T_CORRELATE_ID
-    with tcorr.per(len(DATAFRAMES)) as timer:
+    with tcorr.per(len(DATAFRAMES)) as  timer:
         try:
 
             # find all correlations. pearson correlation pairwise of all dataframes that are currently active.
@@ -142,6 +142,7 @@ def correlate(id, negative):
             #print('correlator: data')
             i = -1
             for _id, df in DATAFRAMES.copy().items():
+                C_CORRELATE.inc()
                 i += 1
                 if not shared.sharded(i, C_SHARD):
                     continue

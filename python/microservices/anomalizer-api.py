@@ -255,12 +255,11 @@ class FilterInSchema(Schema):
     query2 = String(required=False)
     invert2 = Boolean(required=False)
     limit = Float(required=False)
-    server_tags = String(required=False)
 
 @app.post('/filter')
 @app.input(FilterInSchema)
 def filter_metrics_post(body):
-    return _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, shared.E_SHARD))
+    return _proxy_merge({}, ANOMALIZER_ENGINE, shared.E_SHARDS)
 
 @app.get('/filter')
 def filter_metrics_get():

@@ -54,7 +54,6 @@ FILTER = '_created|_count'
 INVERT = True
 FILTER2 = ''
 INVERT2 = False
-SERVER_TAGS = ''
 
 PROMETHEUS = os.environ.get('PROMETHEUS', 'http://localhost:9090')
 META = os.environ.get('PROMETHEUS_META', PROMETHEUS + '/api/v1/metadata')
@@ -271,12 +270,11 @@ WAITING = 0
 def filter_metrics():
     body = request.json
     if body:
-        global FILTER, INVERT, LIMIT, FILTER2, INVERT2, WAITING, SERVER_TAGS
+        global FILTER, INVERT, LIMIT, FILTER2, INVERT2, WAITING
         FILTER = body.get('query', FILTER)
         INVERT = body.get('invert', INVERT)
         FILTER2 = body.get('query2', FILTER2)
         INVERT2 = body.get('invert2', INVERT2)
-        SERVER_TAGS = body.get('server_tags', SERVER_TAGS).strip()
         # TODO: reflect back to UI, until then, fix at [-1].
         LIMIT = float(body.get('limit', LIMIT))
         # release the pending waiters
@@ -284,7 +282,7 @@ def filter_metrics():
             sem.release()
             WAITING -= 1 # no neeed to lock, the GIL does that for us.
 
-    result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2, 'server_tags': SERVER_TAGS}
+    result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2}
     return jsonify(result)
 
 # long-poll for updates to the server-side filter parameters
@@ -294,7 +292,7 @@ def poll_filter():
     global WAITING
     WAITING += 1
     sem.acquire()
-    result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2, 'server_tags': SERVER_TAGS}
+    result = {'status': 'success', 'query': FILTER, 'invert': INVERT, 'limit': LIMIT, 'query2': FILTER2, 'invert2': INVERT2}
     return jsonify(result)
 
 
@@ -386,11 +384,9 @@ def get_prometheus(metric, _rate, _type, step):
             rate = 'rate'
             agg = '[5m]'
         server_tags = ''
-        if SERVER_TAGS:
-            server_tags = '{' + SERVER_TAGS + '}'
 
         import urllib.parse
-        query = urllib.parse.quote(rate + '(' + metric + server_tags + agg + ')')
+        query = urllib.parse.quote(rate + '(' + metric + agg + ')')
 
         PROM = PROMETHEUS + '/api/v1/query_range?query=' + query + '&start=' + str(start) + '&end=' + str(now) + '&step=' + str(step)
 
@@ -468,7 +464,7 @@ def hockey_stick(metric, dxi, dyi, N=5):
     return p1[1]*xr/yr, p2[1]*xr/yr, l1, l2
 
 def get_metrics(metric, id, _type=None, _rate=False):
-    global INTERNAL_FAILURE
+    global INTERNAL_FAILURE, FILTER, FILTER2, INVERT, INVERT2
     try:
         INTERNAL_FAILURE = False
         #print('.', end='', flush=True)
@@ -476,23 +472,30 @@ def get_metrics(metric, id, _type=None, _rate=False):
             return None, None, None, None
 
         # split filter into to parts: {tags}regex
-        if FILTER2.startswith('{'):
-            _, filter_tags, filter2 = re.split('{|}', FILTER2)
+        filter_tags = ''
+        filter = FILTER
+        filter2 = FILTER2
+        if '{' in FILTER:
+            filter, filter_tags, _ = re.split('{|}', FILTER)
+        if '{' in FILTER2:
+            filter2, filter_tags2, _ = re.split('{|}', FILTER2)
+            if filter_tags:
+                filter_tags += ',' + filter_tags2
+            else:
+                filter_tags = filter_tags2
+        if filter_tags:
             filter_tags = '{' + filter_tags + '}'
-        else:
-            filter_tags = ''
-            filter2 = FILTER2
 
         # add in tags to the match. TODO: align this with the match strings on the UI
         # big step first to filter.
         labels, values, query = get_prometheus(metric+filter_tags, _rate, _type, STEP*20)
         cardinality = 'high' if labels and len(labels) > HIGH_CARD else 'medium' if labels and len(labels) > MED_CARD else 'low'
         match = metric + json.dumps({'tags': labels}) + ',' + _type + ',' + json.dumps({'cardinality': cardinality})
-        if FILTER:
-            if (re.match('.*(' + FILTER + ').*', match)==None) != INVERT:
+        if filter:
+            if (re.match('.*(' + filter + ').*', match)==None) != INVERT:
                 return None, None, None, None
         if filter2:
-            if (re.match('.*(' + FILTER2 + ').*', match)==None) != INVERT2:
+            if (re.match('.*(' + filter2 + ').*', match)==None) != INVERT2:
                 return None, None, None, None
         #print('rendering metric=' + match)
         if LIMIT:

@@ -62,3 +62,6 @@ funcparserlib==1.0.
 
 opentelemetry-distro==0.35b0
 opentelemetry-instrumentation==0.35b0
+grpcio==1.47.0
+opentelemetry-exporter-otlp-proto-grpc==1.14.0
+opentelemetry-instrumentation-grpc==0.35b0

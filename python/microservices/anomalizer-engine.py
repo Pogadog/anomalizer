@@ -874,7 +874,7 @@ def poll_metrics():
 
     INDEX += 1
 
-    if bool(os.environ.get('SYNTHETIC_STATUS', 'False')):
+    if os.environ.get('SYNTHETIC_STATUS', 'False')=='True':
         for _i, id in enumerate(DATAFRAMES):
             if _i%3==0:
                 STATUS[id] = Status.CRITICAL

@@ -2,6 +2,7 @@ FROM python:3.9.12
 
 COPY python/requirements.txt .
 RUN pip install -r requirements.txt
+RUN opentelemetry-bootstrap -a install
 
 ENV PROMETHEUS "host.docker.internal:9090"
 COPY python/microservices/ ./microservices/

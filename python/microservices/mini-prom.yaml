@@ -32,6 +32,12 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9100']
 
+  - job_name: 'spring-petclinic'
+    scrape_interval: 10s
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['localhost:8080']
+
   #- job_name: 'mini-prom'
   #  scrape_interval: 10s
   #  static_configs:

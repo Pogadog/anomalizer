@@ -252,7 +252,7 @@ def miniprom():
 
     print(yaml.dump(CONFIG))
 
-    def scraper(job, targets, scrape_interval):
+    def scraper(job, targets, scrape_interval, metrics_path='/metrics'):
         TARGET_STATUS[job] = {'status': 'down'}
         while True:
             for mtarget in targets:
@@ -267,7 +267,7 @@ def miniprom():
                         value = datetime.datetime.fromtimestamp(_time)
                         TARGET_STATUS[job][target]['last_scrape_date'] = value.strftime('%Y-%m-%d %H:%M:%S')
 
-                        endpoint = 'http://' + target + '/metrics'
+                        endpoint = 'http://' + target + metrics_path
                         TARGET_STATUS[job][target]['endpoint'] = endpoint
                         print('scraping: job=' + job + ', endpoint=' + endpoint)
                         text = requests.get(endpoint).text
@@ -333,10 +333,11 @@ def miniprom():
             job = config['job_name']
             targets = config['static_configs']
             scrape_interval = config['scrape_interval']
+            metrics_path = config.get('metrics_path', '/metrics')
             num, units = int(scrape_interval[0:-1]), scrape_interval[-1]
             # support reasonable scrape intervals, not the unreasonable d, h, ms versions.
             scrape_interval = num*(60 if units=='m' else 1)
-            threading.Thread(target=scraper, args=(job, targets, scrape_interval)).start()
+            threading.Thread(target=scraper, args=(job, targets, scrape_interval, metrics_path)).start()
         
         # start thread to checkpoint the state one a per-minugte basis
         threading.Thread(target=checkpoint).start()

@@ -121,9 +121,12 @@ def correlate_all_poller():
 
 @functools.lru_cache
 def correlate(id, negative):
-    #if id=='all':
-    #    print('correlate/all is disabled for reasons of scale')
-    #    return jsonify({'status': 'failed', 'exception': 'correlate/all is disabled for performance reasons'})
+    # default ignore correlate-all calls for reasons of scale.
+    if os.environ.get('CORRELATE_ALL', 'False')=='False':
+        if id=='all':
+            print('correlate/all is disabled for reasons of scale')
+            time.sleep(10)
+            return {'status': 'failed', 'exception': 'correlate/all is disabled for performance reasons'}
 
     neg = 1 if negative else -1
     data = pd.DataFrame()
@@ -150,7 +153,7 @@ def correlate(id, negative):
                 dfc = df.copy()
                 # don't bother to correlate things that aren't moving around.
                 std = dfc.std(ddof=0).abs().sum()
-                if std < LIMIT:
+                if std < 0.1:
                     continue
                 mean = dfc.mean().sum()
                 #rstd = std/mean*100 if mean>std else std
@@ -172,7 +175,7 @@ def correlate(id, negative):
             if id=='all':
                 # correleate everything against everything
                 print('correlate/all: shard=' + str(C_SHARD) + ', #metrics=' + str(data.shape))
-                # TODO: this does not s     cale, and may cause performance probelms. pick only top-N metrics by interest?
+                # TODO: this does not scale, and may cause performance probelms. pick only top-N metrics by interest?
                 corr = data.corr().fillna(0)
                 #print('correlate/all is disabled for reasons of scale')
                 #corr = pd.DataFrame()

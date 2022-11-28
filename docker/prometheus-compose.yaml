@@ -9,6 +9,10 @@ services:
       - ../prometheus-data:/prometheus
     ports:
       - "9090:9090" # expose this prometheus on 9091 host port
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
 
   loki:
     image: grafana/loki:latest
@@ -22,7 +26,14 @@ services:
     image: grafana/promtail:latest
     volumes:
       - /var/log:/var/log
+      - ./promtail-config.yaml:/etc/promtail/config.yaml
     command: -config.file=/etc/promtail/config.yml
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
+    depends_on:
+      - loki
 
   grafana:
     image: grafana/grafana:latest
@@ -38,53 +49,72 @@ services:
       - GF_SECURITY_ALLOW_EMBEDDING=true
       - GF_PANELS_DISABLE_SANITIZE_HTML=true
       - GF_PLUGINS_ENABLE_ALPHA=true
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
+
+  tempo:
+    image: grafana/tempo:latest
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./tempo-local.yaml:/etc/tempo.yaml
+      - ./tempo-data:/tmp/tempo
+    ports:
+      - "14268:14628"  # jaeger ingest
+      - "4317:4317"   # oltp/grpc ingest
+      - "4318:4318"   # oltp/http ingest
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
 
   # add in telegraf, influxdb and opentsdb just to see what we can do
-  opentsdb:
-    hostname: otsdb-host
-    image: petergrace/opentsdb-docker:latest
-    environment:
-      - WAITSECS=30
-    ports:
-      - 4242:4242
-      - 60030:60030
-    networks:
-      - monitoring
-    volumes:
-      - "./data:/data/hbase"
+  #opentsdb:
+  #  hostname: otsdb-host
+  #  image: petergrace/opentsdb-docker:latest
+  #  environment:
+  #    - WAITSECS=30
+  #  ports:
+  #    - 4242:4242
+  #    - 60030:60030
+  #  networks:
+  #    - monitoring
+  #  volumes:
+  #    - "./data:/data/hbase"
 
-  influxdb:
-    image: influxdb
-    container_name: influxdb
-    restart: always
-    ports:
-      - 8086:8086
-    networks:
-      - monitoring
-    volumes:
-      - influxdb-volume:/vol01/Docker/monitoring
-    environment:
-      - DOCKER_INFLUXDB_INIT_USERNAME=admin
-      - DOCKER_INFLUXDB_INIT_PASSWORD=adminadmin
-      - DOCKER_INFLUXDB_INIT_ORG=pogadog
-      - DOCKER_INFLUXDB_INIT_BUCKET=telegraf
+  #influxdb:
+  #  image: influxdb
+  #  container_name: influxdb
+  #  restart: always
+  #  ports:
+  #    - 8086:8086
+  #  networks:
+  #    - monitoring
+  #  volumes:
+  #    - influxdb-volume:/vol01/Docker/monitoring
+  #  environment:
+  #    - DOCKER_INFLUXDB_INIT_USERNAME=admin
+  #    - DOCKER_INFLUXDB_INIT_PASSWORD=adminadmin
+  #    - DOCKER_INFLUXDB_INIT_ORG=pogadog
+  #    - DOCKER_INFLUXDB_INIT_BUCKET=telegraf
 
-  telegraf:
-    image: telegraf
-    container_name: telegraf
-    restart: always
-    environment:
-      HOST_PROC: /rootfs/proc
-      HOST_SYS: /rootfs/sys
-      HOST_ETC: /rootfs/etc
-    networks:
-      - monitoring
-    volumes:
-      - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /sys:/rootfs/sys:ro
-      - /proc:/rootfs/proc:ro
-      - /etc:/rootfs/etc:ro
+  #telegraf:
+  #  image: telegraf
+  #  container_name: telegraf
+  #  restart: always
+  #  environment:
+  #    HOST_PROC: /rootfs/proc
+  #    HOST_SYS: /rootfs/sys
+  #    HOST_ETC: /rootfs/etc
+  #  networks:
+  #    - monitoring
+  #  volumes:
+  #    - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+  #    - /var/run/docker.sock:/var/run/docker.sock:ro
+  #    - /sys:/rootfs/sys:ro
+  #    - /proc:/rootfs/proc:ro
+  #    - /etc:/rootfs/etc:ro
 
   node-exporter:
     image: prom/node-exporter:latest
@@ -105,9 +135,13 @@ services:
       - 9100
     networks:
       - monitoring
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
 
-volumes:
-  influxdb-volume:
+#volumes:
+#  influxdb-volume:
 
 networks:
   monitoring:

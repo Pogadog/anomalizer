@@ -1,0 +1,24 @@
+version: "2"
+services:
+
+  # anomalizer
+  anomalizer:
+    image: ghcr.io/pogadog/anomalizer-multi:latest
+    #image: anomalizer-arm64
+    command: --mini-prom --load-test --interpreter="opentelemetry-instrument --log_level=DEBUG --service_name={service} python"
+    ports:
+      - "8056:8056"
+    environment:
+      - E_SHARDS=${E_SHARDS:-1}
+      - I_SHARDS=${I_SHARDS:-1}
+      - SYNTHETIC_STATUS=${SYNTHETIC_STATUS:-False}
+      - OTEL_RESOURCE_ATTRIBUTES=application=anomalizer
+      - OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=grpc
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+    #environment:
+    # - PROMETHEUS=host.docker.internal:9090 # change this port to point to another prometheus.
+    # - LOKI=http://host.docker.internal:3100
+    # - E_SHARDS=1
+    # - I_SHARDS=1
+
+

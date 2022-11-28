@@ -259,11 +259,13 @@ class FilterInSchema(Schema):
 @app.post('/filter')
 @app.input(FilterInSchema)
 def filter_metrics_post(body):
+    # all engines should have the same filter settings.
     return _proxy_merge({}, ANOMALIZER_ENGINE, shared.E_SHARDS)
 
 @app.get('/filter')
 def filter_metrics_get():
-    return _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, shared.E_SHARD))
+    # all engines should have the same filter settings.
+    return _proxy_merge({}, ANOMALIZER_ENGINE, shared.E_SHARDS)
 
 @app.get('/poll_filter')
 def poll_filter():

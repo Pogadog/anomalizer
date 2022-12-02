@@ -42,7 +42,6 @@ print('ANOMALIZER-ENGINE PORT=' + str(PORT))
 
 DURATION = 60*60*3
 STEP = 60
-INVERT = False
 INCREASE_THRESH = 0.5
 DECREASE_THRESH = -0.25
 
@@ -271,9 +270,9 @@ def filter_metrics():
     body = request.json
     if body:
         global FILTER, INVERT, LIMIT, FILTER2, INVERT2, WAITING
-        FILTER = body.get('query', FILTER)
+        FILTER = body.get('query', FILTER).strip()
         INVERT = body.get('invert', INVERT)
-        FILTER2 = body.get('query2', FILTER2)
+        FILTER2 = body.get('query2', FILTER2).strip()
         INVERT2 = body.get('invert2', INVERT2)
         # TODO: reflect back to UI, until then, fix at [-1].
         LIMIT = float(body.get('limit', LIMIT))
@@ -417,7 +416,8 @@ def get_prometheus(metric, _rate, _type, step):
                 values.append(padded.tolist())
         query = PROM.replace('/api/v1/query_range?query=', '/graph?g0.expr=')
         return labels, values, query
-    except:
+    except Exception as x:
+        shared.trace(x)
         PROMETHEUS_HEALTHY = False
         raise
 
@@ -711,12 +711,28 @@ def poll_metrics():
     #print('poll_metrics: ' + str(METRICS))
     for metric in METRICS.copy():
         METRICS_PROCESSED += 1
-        id = None
+        # bypass server-side metrics
+        id = METRIC_MAP.get(metric, str(uuid.uuid5(uuid.NAMESPACE_OID, metric)))
+
+        filter = FILTER
+        if '{' in filter:
+            filter, _, _ = re.split('{|}', FILTER)
+        if filter and (re.match('.*(' + filter + ').*', metric)==None) != INVERT:
+            print('ignoring ' + metric + ' because FILTER=' + filter)
+            cleanup(id)
+            continue
+        filter2 = FILTER2
+        if '{' in filter2:
+            filter2, _, _ = re.split('{|}', FILTER2)
+        if filter2 and (re.match('.*(' + filter2 + ').*', metric)==None) != INVERT2:
+            print('ignoring ' + metric + ' because FILTER2=' + filter2)
+            cleanup(id)
+            continue
+
         try:
             _type = METRIC_TYPES.get(metric, '')
             if shared.args.verbose:
                 print('poll-metrics: ' + metric + ': ' + _type)
-            id = METRIC_MAP.get(metric, str(uuid.uuid5(uuid.NAMESPACE_OID, metric)))
             if shared.shard(id, SHARDS) != SHARD:
                 continue
 

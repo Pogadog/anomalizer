@@ -38,7 +38,7 @@ server = APIFlask(__name__, title='mini-prom')
 def health():
     return jsonify({'status': 'healthy'})
 
-PORT = int(os.environ.get('MINIPROM_PORT', '9090'))
+PORT = int(os.environ.get('MINIPROM_PORT', '19090'))
 
 CONFIG = None
 TARGET_STATUS = {}
@@ -120,7 +120,6 @@ def query_range():
             'metrics': []
         }
 
-
         parse_result = urlparse(request.url)
         dquery = parse_qs(parse_result.query)
         query = dquery['query'][0]
@@ -134,7 +133,7 @@ def query_range():
                 parsed = prom_parser.parse(query)
                 current = METRICS_BY_NAME[CURRENT]
                 evaluated = prom_parser.eval_tree({'metrics': current['metrics'], 'types': current.get('types', {})}, parsed)
-                # resample the data to matcch the step.
+                # resample the data to match the step.
                 evaluated.index = pd.to_datetime(evaluated.index, unit='s')
                 evaluated = evaluated.resample(str(step)+'s').mean().interpolate().fillna(0)
                 evaluated.index = (evaluated.index.astype(int)//1e9).astype(int)
@@ -228,21 +227,23 @@ print('MICROSERVICES=' + PATH)
 
 from google.cloud import storage
 def write_to_cloud (upload):
-    print('write_to_cloud: ' + upload)
-    client = storage.Client()
-    bucket = client.get_bucket( 'anomalizer-demo.appspot.com' )
-    blob = bucket.blob('/mini-prom/' + os.path.basename(upload))
-    blob.upload_from_filename(upload)
+    if os.environ.get('SAVE_TO_CLOUD', 'False')=='True':
+        print('write_to_cloud: ' + upload)
+        client = storage.Client()
+        bucket = client.get_bucket( 'anomalizer-demo.appspot.com' )
+        blob = bucket.blob('/mini-prom/' + os.path.basename(upload))
+        blob.upload_from_filename(upload)
 
 def read_from_cloud (name):
-    print('read_from_cloud: ' + name)
-    client = storage.Client()
-    bucket = client.get_bucket( 'anomalizer-demo.appspot.com' )
-    blob = bucket.blob('/mini-prom/' + os.path.basename(name))
-    if blob.exists():
-        file = open(name, 'wb')
-        with file:
-            blob.download_to_file(file)
+    if os.environ.get('SAVE_TO_CLOUD', 'False')=='True':
+        print('read_from_cloud: ' + name)
+        client = storage.Client()
+        bucket = client.get_bucket( 'anomalizer-demo.appspot.com' )
+        blob = bucket.blob('/mini-prom/' + os.path.basename(name))
+        if blob.exists():
+            file = open(name, 'wb')
+            with file:
+                blob.download_to_file(file)
 
 def miniprom():
     global CONFIG
@@ -307,7 +308,7 @@ def miniprom():
             time.sleep(scrape_interval)
 
     import threading, pickle
-    
+
     def checkpoint(loop=True):
         if os.environ.get('SAVE_STATE', 'False')=='True':
             while True:

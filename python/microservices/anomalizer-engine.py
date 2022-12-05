@@ -30,6 +30,8 @@ import logging
 logging.getLogger("werkzeug").disabled = True
 
 app = APIFlask(__name__, title='anomalizer-engine')
+app.json_encoder = shared.SetEncoder
+
 metrics = PrometheusMetrics(app, path='/flask/metrics')
 
 SHARDS = shared.E_SHARDS
@@ -59,6 +61,7 @@ META = os.environ.get('PROMETHEUS_META', PROMETHEUS + '/api/v1/metadata')
 
 ID_MAP = {}
 METRIC_MAP = {}
+METRIC_LABELS = {}
 DATAFRAMES = {}
 SCATTERGRAMS = {}
 STATS = {}
@@ -188,6 +191,10 @@ def metric_map():
     print('PORT=' + str(PORT) + ', #METRIC_MAP=' + str(len(METRIC_MAP)))
     return jsonify(METRIC_MAP)
 
+@app.route('/metric_labels')
+def metric_labels():
+    return jsonify(METRIC_LABELS)
+
 @app.route('/id_map')
 def id_map():
     return jsonify(ID_MAP)
@@ -198,7 +205,7 @@ def to_string(dict):
         result += [k + '=' + '"' + v + '"']
     return '{' + ','.join(result) + '}'
 
-@app.route('/prometheus')
+@app.route('/prometheus/metrics')
 def prometheus():
     lines = ''
     # dump the metrics available in our attached prometheus METADATA
@@ -718,14 +725,12 @@ def poll_metrics():
         if '{' in filter:
             filter, _, _ = re.split('{|}', FILTER)
         if filter and (re.match('.*(' + filter + ').*', metric)==None) != INVERT:
-            print('ignoring ' + metric + ' because FILTER=' + filter)
             cleanup(id)
             continue
         filter2 = FILTER2
         if '{' in filter2:
             filter2, _, _ = re.split('{|}', FILTER2)
         if filter2 and (re.match('.*(' + filter2 + ').*', metric)==None) != INVERT2:
-            print('ignoring ' + metric + ' because FILTER2=' + filter2)
             cleanup(id)
             continue
 
@@ -746,6 +751,12 @@ def poll_metrics():
                 dfp = dfp.replace([np.inf, -np.inf, np.nan], 0)
                 if labels:
                     METRICS_TOTAL_TS += len(labels)
+                    for label in labels:
+                        for tag in label:
+                            if not tag in METRIC_LABELS:
+                                METRIC_LABELS[tag] = set()
+                            METRIC_LABELS[tag].add(label[tag])
+                            print(METRIC_LABELS)
                     # forward/backward map between metrics and their ids.
                     ID_MAP[id] = metric
                     METRIC_MAP[metric] = id

@@ -18,8 +18,6 @@ args = parser.parse_known_args()[0]
 print(args)
 
 PROMETHEUS = os.environ.get('PROMETHEUS', 'http://localhost:9090')
-if args.mini_prom:
-    PROMETHEUS = 'http://localhost:9090'
 
 CMD = args.interpreter
 

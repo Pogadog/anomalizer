@@ -28,6 +28,12 @@ I_SHARD = int(os.environ.get('I_SHARD', '0'))
 E_SHARDS = int(os.environ.get('E_SHARDS', '1'))
 E_SHARD = int(os.environ.get('E_SHARD', '0'))
 
+class SetEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, set):
+            return list(obj)
+        return json.JSONEncoder.default(self, obj)
+
 if SENTRY_KEY:
     import sentry_sdk
     from sentry_sdk.integrations.flask import FlaskIntegration

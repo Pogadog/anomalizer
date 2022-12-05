@@ -149,24 +149,6 @@ def ids():
 def dataframes():
     return _proxy_merge({}, ANOMALIZER_ENGINE, shared.E_SHARDS)
 
-'''
-@app.route('/dataframes')
-def dataframes():
-    dataframes = {}
-    headers = {}
-    for i in range(0, shared.E_SHARDS):
-        # TODO: some kind of discovery here, rather than hard-wired ports
-        endpoint = shared.shard_endpoint(ANOMALIZER_ENGINE, i)
-        dataframe = _proxy(endpoint)
-        if dataframe:
-            headers = dataframe.headers
-            print('shard=' + str(i) + ', #dataframes=' + str(len(dataframe.json)))
-            _merge(dataframes, dataframe.json)
-    # use the headers from the image response to make a valid response here.
-    response = Response(bytes(json.dumps(dataframes), 'utf-8'), 200, headers)
-    return response
-'''
-
 @app.route('/scattergrams')
 def scattergrams():
     return _proxy_merge({}, ANOMALIZER_ENGINE, shared.E_SHARDS)
@@ -278,7 +260,7 @@ def figure_id(id):
     endpoint = shared.shard_endpoint(ANOMALIZER_IMAGES, shard)
     return _proxy(endpoint)
 
-@app.route('/prometheus')
+@app.route('/prometheus/metrics')
 def prometheus():
     r1 = _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, shared.E_SHARD))
     lines = ''

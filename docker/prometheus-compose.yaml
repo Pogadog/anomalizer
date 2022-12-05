@@ -36,7 +36,7 @@ services:
       - loki
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:7.0.0
     ports:
       - "3000:3000"
     networks:
@@ -44,11 +44,13 @@ services:
     volumes:
       # persist the grafana store -- stop losing dashbaords.
       - ../grafana-storage:/var/lib/grafana
+      - /tmp/pogadog_grafana_plugins:/var/lib/grafana-plugins
     environment:
       # allow embedding.
       - GF_SECURITY_ALLOW_EMBEDDING=true
       - GF_PANELS_DISABLE_SANITIZE_HTML=true
       - GF_PLUGINS_ENABLE_ALPHA=true
+      - GF_FEATURE_TOGGLES_ENABLE=flameGraph
     logging:
       driver: loki
       options:

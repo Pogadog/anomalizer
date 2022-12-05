@@ -157,6 +157,10 @@ def scattergrams():
 def metric_map():
     return _proxy_merge({}, ANOMALIZER_ENGINE, shared.E_SHARDS)
 
+@app.route('/metric_labels')
+def metric_labels():
+    return _proxy_merge({}, ANOMALIZER_ENGINE, shared.E_SHARDS)
+
 @app.route('/images')
 def images():
 

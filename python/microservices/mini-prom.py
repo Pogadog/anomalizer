@@ -10,7 +10,7 @@ import traceback, datetime
 
 import shared
 
-MINI_PROM_PICKLE = '/tmp/mini-prom.pickle'
+MINI_PROM_PICKLE = '/tmp/mini-prom-1.pickle'
 
 shared.hook_logging('mini-prom')
 
@@ -45,9 +45,8 @@ TARGET_STATUS = {}
 
 # METRICS_BY_NAME = [(start, end, metrics={name: [time, {sorted(tags): value}]
 RESOLUTION = 60
-METRICS_BY_NAME = [{'start': time.time(), 'end': time.time() + RESOLUTION, 'metrics': {}, 'types': {}}]
+METRICS_BY_NAME = {'start': time.time(), 'end': time.time() + RESOLUTION, 'metrics': {}, 'types': {}}
 METRICS_FAMILY = {}
-CURRENT = 0
 
 @server.route('/config')
 @server.doc(summary='configuraton information', description='dumps the prometheus.yaml file')
@@ -68,7 +67,7 @@ def metrics_by_name():
 
 @server.route('/metric-names')
 def names():
-    return jsonify(sorted(METRICS_BY_NAME[CURRENT]['metrics'].keys()))
+    return jsonify(sorted(METRICS_BY_NAME['metrics'].keys()))
 
 @server.route('/api/v1/targets')
 def targets():
@@ -131,8 +130,7 @@ def query_range():
         if NEW:
             try:
                 parsed = prom_parser.parse(query)
-                current = METRICS_BY_NAME[CURRENT]
-                evaluated = prom_parser.eval_tree({'metrics': current['metrics'], 'types': current.get('types', {})}, parsed)
+                evaluated = prom_parser.eval_tree({'metrics': METRICS_BY_NAME['metrics'], 'types': METRICS_BY_NAME.get('types', {})}, parsed)
                 # resample the data to match the step.
                 evaluated.index = pd.to_datetime(evaluated.index, unit='s')
                 evaluated = evaluated.resample(str(step)+'s').mean().interpolate().fillna(0)
@@ -151,8 +149,8 @@ def query_range():
                         _metric = {'__name__': query}
                         _metric.update(tags)
                         result += [{'metric': _metric, 'values': values}]
-            except:
-                pass # ignore parsing and evaluation errors.
+            except Exception as x:
+                shared.trace(x)
             return jsonify(blob)
         else:
 
@@ -187,11 +185,10 @@ def query_range():
                     else:
                         exacts[name] = string.replace('"', '')
 
-            current = METRICS_BY_NAME[CURRENT]
             family = METRICS_FAMILY.get(metric, {})
             if family.get('type') == 'counter':
                 metric += '_total'
-            m = current['metrics'].get(metric)
+            m = METRICS_BY_NAME['metrics'].get(metric)
             result = blob['data']['result']
             if m:
                 for tag in m:
@@ -282,23 +279,23 @@ def miniprom():
                                 labels = sample.labels
                                 labels.update({'job': job, 'instance': target, 'prometheus': 'miniprom:' + str(PORT)})
 
-                                if not name in METRICS_BY_NAME[CURRENT]['metrics']:
-                                    METRICS_BY_NAME[CURRENT]['metrics'][name] = {}
-                                    METRICS_BY_NAME[CURRENT]['types'][family.name] = METRICS_FAMILY[family.name]['type']
+                                if not name in METRICS_BY_NAME['metrics']:
+                                    METRICS_BY_NAME['metrics'][name] = {}
+                                    METRICS_BY_NAME['types'][family.name] = METRICS_FAMILY[family.name]['type']
                                 _labels = str([l + '=' + labels[l] for l in sorted(labels)])
-                                if not _labels in METRICS_BY_NAME[CURRENT]['metrics'][name]:
-                                    METRICS_BY_NAME[CURRENT]['metrics'][name][_labels] = []
+                                if not _labels in METRICS_BY_NAME['metrics'][name]:
+                                    METRICS_BY_NAME['metrics'][name][_labels] = []
 
-                                METRICS_BY_NAME[CURRENT]['metrics'][name][_labels] += [[_time, value]]
+                                METRICS_BY_NAME['metrics'][name][_labels] += [[_time, value]]
                                 # limit this to 180 samples (simulate 3hrs@1s)
-                                if len(METRICS_BY_NAME[CURRENT]['metrics'][name][_labels]) >= 180:
+                                if len(METRICS_BY_NAME['metrics'][name][_labels]) >= 180:
                                     #print('pruning data ' + name + '. ' + str(labels))
-                                    METRICS_BY_NAME[CURRENT]['metrics'][name][_labels].pop(0)
+                                    METRICS_BY_NAME['metrics'][name][_labels].pop(0)
                                 _list = ast.literal_eval(_labels)
                                 _tags = dict(item.split('=') for item in _list)
 
-                        #for name in METRICS_BY_NAME[CURRENT]['metrics']:
-                        #    print(name + ': ' + str(METRICS_BY_NAME[CURRENT]['metrics'][name]))
+                        #for name in METRICS_BY_NAME['metrics']:
+                        #    print(name + ': ' + str(METRICS_BY_NAME['metrics'][name]))
                     except Exception as x:
                         print('scrape ' + target + ' failed: ' + str(x))
                         # shared.trace(x, msg='scrape exception')
@@ -355,7 +352,15 @@ def miniprom():
             file = open(MINI_PROM_PICKLE, 'rb')
             global METRICS_BY_NAME, METRICS_FAMILY
             with file:
-                METRICS_BY_NAME, METRICS_FAMILY = pickle.load(file)
+                loaded = pickle.load(file)
+                METRICS_BY_NAME, METRICS_FAMILY = loaded
+            # reset the time index for all the metrics to end at 'now' to 'hide' the gap while shutdown
+            for label, data in METRICS_BY_NAME['metrics'].items():
+                for d, ts in data.items():
+                    delta = time.time() - ts[-1][0]
+                    for v in ts:
+                        v[0] += delta
+
         except Exception as x:
             print('unable to load local mini-prom.pickle: ' + repr(x), sys.stderr)
 

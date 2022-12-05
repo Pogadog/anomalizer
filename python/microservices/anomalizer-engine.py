@@ -756,7 +756,6 @@ def poll_metrics():
                             if not tag in METRIC_LABELS:
                                 METRIC_LABELS[tag] = set()
                             METRIC_LABELS[tag].add(label[tag])
-                            print(METRIC_LABELS)
                     # forward/backward map between metrics and their ids.
                     ID_MAP[id] = metric
                     METRIC_MAP[metric] = id

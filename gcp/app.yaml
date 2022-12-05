@@ -24,6 +24,7 @@ automatic_scaling:
   min_idle_instances: 0
 
 env_variables:
+  PROMETHEUS: http://localhost:19090
   RESTORE_STATE: True
   SAVE_STATE: True
   SAVE_TO_CLOUD: True

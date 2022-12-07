@@ -13,7 +13,7 @@
 # limitations under the License.
 
 runtime: python39
-instance_class: F4
+instance_class: F4_1G
 
 # start a single worker, since it will spawn sub-processes.
 entrypoint: gunicorn -b :$PORT -w 1 main:app

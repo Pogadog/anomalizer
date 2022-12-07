@@ -16,6 +16,8 @@ services:
 
   loki:
     image: grafana/loki:latest
+    networks:
+      - monitoring
     ports:
       - "3100:3100"
     volumes:
@@ -24,6 +26,8 @@ services:
 
   promtail:
     image: grafana/promtail:latest
+    networks:
+      - monitoring
     volumes:
       - /var/log:/var/log
       - ./promtail-config.yaml:/etc/promtail/config.yaml
@@ -36,14 +40,14 @@ services:
       - loki
 
   grafana:
-    image: grafana/grafana:7.0.0
-    ports:
-      - "3000:3000"
+    image: grafana/grafana:latest
     networks:
       - monitoring
+    ports:
+      - "3000:3000"
     volumes:
       # persist the grafana store -- stop losing dashbaords.
-      - ../grafana-storage:/var/lib/grafana
+      - ./grafana-storage:/var/lib/grafana
       - /tmp/pogadog_grafana_plugins:/var/lib/grafana-plugins
     environment:
       # allow embedding.
@@ -57,15 +61,17 @@ services:
         loki-url: 'http://localhost:3100/loki/api/v1/push'
 
   tempo:
-    image: grafana/tempo:latest
+    image: grafana/tempo:latest # serves http://tempo:3200
+    networks:
+      - monitoring
     command: [ "-config.file=/etc/tempo.yaml" ]
     volumes:
       - ./tempo-local.yaml:/etc/tempo.yaml
       - ./tempo-data:/tmp/tempo
     ports:
       - "14268:14628"  # jaeger ingest
-      - "4317:4317"   # oltp/grpc ingest
-      - "4318:4318"   # oltp/http ingest
+      - "14317:4317"   # oltp/grpc ingest
+      - "14318:4318"   # oltp/http ingest
     logging:
       driver: loki
       options:
@@ -120,6 +126,8 @@ services:
 
   node-exporter:
     image: prom/node-exporter:latest
+    networks:
+      - monitoring
     container_name: node-exporter
     restart: always
     volumes:
@@ -135,8 +143,6 @@ services:
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
     expose:
       - 9100
-    networks:
-      - monitoring
     logging:
       driver: loki
       options:

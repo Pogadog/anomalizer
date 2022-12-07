@@ -37,7 +37,7 @@ def _proxy(*args, **kwargs):
             ANOMALIZER_IMAGES_HEALTHY = Health.UP
         if ANOMALIZER_CORRELATOR in args[0]:
             ANOMALIZER_CORRELATOR_HEALTHY = Health.UP
-        print('proxy: ' + request.url + '->' + args[0])
+        #print('proxy: ' + request.url + '->' + args[0])
     try:
         url = request.url
         if args:
@@ -127,8 +127,12 @@ ANOMALIZER_API = os.environ.get('ANOMALIZER_API', 'http://localhost:8056')
 
 @app.route('/health')
 def health():
-    healthy = ANOMALIZER_ENGINE_HEALTHY==Health.UP and ANOMALIZER_IMAGES_HEALTHY==Health.UP and ANOMALIZER_CORRELATOR_HEALTHY==Health.UP
-    return jsonify({'status': Health.HEALTHY if healthy else Health.UNHEALTHY,
+    healthy = Health.UP
+    if ANOMALIZER_ENGINE_HEALTHY==Health.DOWN or ANOMALIZER_IMAGES_HEALTHY==Health.DOWN or ANOMALIZER_CORRELATOR_HEALTHY==Health.DOWN:
+        healthy = Health.DOWN
+    if ANOMALIZER_ENGINE_HEALTHY==Health.UNKNOWN or ANOMALIZER_IMAGES_HEALTHY==Health.UNKNOWN or ANOMALIZER_CORRELATOR_HEALTHY==Health.UNKNOWN:
+        healthy = Health.UNKNOWN
+    return jsonify({'status': healthy,
                     'anomalizer-engine': ANOMALIZER_ENGINE_HEALTHY,
                     'anomalizer-images': ANOMALIZER_IMAGES_HEALTHY,
                     'anomalizer-correlator': ANOMALIZER_CORRELATOR_HEALTHY,

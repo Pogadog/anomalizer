@@ -1,0 +1,21 @@
+receivers:
+  otlp:
+    protocols:
+      grpc: # port 4317
+
+exporters:
+  otlp/tempo:
+    endpoint: host.docker.internal:14317
+    tls:
+      insecure: true
+  otlp/wavefront:
+    endpoint: host.docker.internal:24317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/tempo, otlp/wavefront]
+      processors: []

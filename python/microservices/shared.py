@@ -242,7 +242,7 @@ class CountHandler(logging.Handler):
         super().__init__()
     def emit(self, record: logging.LogRecord) -> None:
         # dogfood: keep a counter of logs by level and log name.
-        C_LOG_MESSAGE.labels(record.levelname, record.name).inc(1)
+        C_LOG_MESSAGE.labels(record.levelname.lower(), record.name).inc(1)
 
 
 # Hook process stdout & stderr to a logger, based on service name.

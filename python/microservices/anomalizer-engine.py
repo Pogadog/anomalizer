@@ -467,8 +467,8 @@ def hockey_stick(metric, dxi, dyi, N=5):
     yp2 = p2(xp2)
     l2 = pd.DataFrame([xp2, yp2]).T
 
-    # return the normalized second and first grafndients
-    return p1[1]*xr/yr, p2[1]*xr/yr, l1, l2
+    # return the normalized second and first gradients
+    return p1[1], p2[1], l1, l2
 
 def get_metrics(metric, id, _type=None, _rate=False):
     global INTERNAL_FAILURE, FILTER, FILTER2, INVERT, INVERT2

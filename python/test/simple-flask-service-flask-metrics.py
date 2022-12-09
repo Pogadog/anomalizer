@@ -14,13 +14,11 @@ def index():
     return 'ok'
 
 @app.route('/method-1')
-@metrics.summary('s_method_1', 'time for /method-1', labels={'app': FILE})
 def method1():
     time.sleep(random.random())
     return 'method-1'
 
 @app.route('/method-2')
-@metrics.summary('s_method_2', 'time for /method-2', labels={'app': FILE})
 def method2():
     time.sleep(random.random())
     return 'method1-2'

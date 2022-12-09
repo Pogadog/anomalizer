@@ -143,3 +143,4 @@ dmypy.json
 /docker/prometheus-data-local/
 /docker/grafana-storage/
 /docker/grafana-plugins/pogadog-anomalizer-panel/
+/docker/grafana-storage-7/

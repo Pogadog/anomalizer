@@ -7,6 +7,8 @@ export RESTORE_STATE=True
 export MINI_PROM=True
 export LOAD_TEST=True
 export OTEL_RESOURCE_ATTRIBUTES='application=anomalizer'
+export OTEL_PYTHON_LOG_CORRELATION=false
+export LOKI=http://locahost:3100
 
 python anomalizer-service.py --interpreter="opentelemetry-instrument --service_name={service} python" &> anomalizer-service.log &
 echo 'executing tail-F anomalizer-service.log: ^C then pkill python to cleanup'

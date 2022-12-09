@@ -48,13 +48,28 @@ services:
     volumes:
       # persist the grafana store -- stop losing dashbaords.
       - ./grafana-storage:/var/lib/grafana
-      - /tmp/pogadog_grafana_plugins:/var/lib/grafana-plugins
+      - ../../../../Downloads/anomalizer:/var/lib/grafana-plugins
     environment:
       # allow embedding.
       - GF_SECURITY_ALLOW_EMBEDDING=true
       - GF_PANELS_DISABLE_SANITIZE_HTML=true
       - GF_PLUGINS_ENABLE_ALPHA=true
       - GF_FEATURE_TOGGLES_ENABLE=flameGraph
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
+
+  grafana-7:
+    image: grafana/grafana:7.0.0
+    networks:
+      - monitoring
+    ports:
+      - "13000:3000"
+    volumes:
+      # persist the grafana store -- stop losing dashbaords.
+      - ./grafana-storage-7:/var/lib/grafana
+      - ../../../../Downloads/anomalizer:/var/lib/grafana-plugins
     logging:
       driver: loki
       options:

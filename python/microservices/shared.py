@@ -252,6 +252,7 @@ def hook_logging(name):
     # add loki handler.
     if LOKI:
         log.addHandler(loki_handler)
+        # loki_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s [%(name)s] [%(filename)s:%(lineno)d] [trace_id=%(otelTraceID)s span_id=%(otelSpanID)s resource.service.name=%(otelServiceName)s] - %(message)s'))
     # track logs as count metrics.
     log.addHandler(CountHandler())
     # only add confluent handler if bootstrap servers are defined.

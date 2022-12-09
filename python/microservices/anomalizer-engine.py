@@ -927,12 +927,14 @@ G_METRICS_TOTAL_TS = Gauge('anomalizer_num_metrics_total_timeseries', 'number of
 G_METRICS = Gauge('anomalizer_num_metrics', 'number of metrics')
 G_POLL_TIME = Gauge('anomalizer_poll_time', 'poll-time (seconds)')
 
-log_metrics = logging.getLogger('anomalizer-metrics')
-log_metrics.propagate = False # do not emit on stdout, just send to loki and the count handler.
-log_metrics.addHandler(shared.CountHandler())
-
-if shared.LOKI:
-    log_metrics.addHandler(shared.loki_handler)
+LOG_METRICS = os.environ.get('LOG_METRICS', None)
+log_metrics = None
+if LOG_METRICS:
+    log_metrics = logging.getLogger('anomalizer-metrics')
+    log_metrics.propagate = False # do not emit on stdout, just send to loki and the count handler.
+    log_metrics.addHandler(shared.CountHandler())
+    if shared.LOKI:
+        log_metrics.addHandler(shared.loki_handler)
 
 # push metrics as structured logs
 def metrics_as_logs():
@@ -965,7 +967,8 @@ def resource_monitoring():
         G_METRICS.set(len(METRICS))
         G_POLL_TIME.set(POLL_TIME)
         # also emit the metrics we know about as logs.
-        metrics_as_logs()
+        if log_metrics:
+            metrics_as_logs()
         # cleanup stale metrics
         for id in DATAFRAMES.copy().keys():
             remain = STALEOUT[id] - time.time()

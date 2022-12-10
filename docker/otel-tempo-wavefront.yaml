@@ -3,6 +3,7 @@ receivers:
     protocols:
       grpc: # port 4317
 
+# send traffic to two endpoints: tempo on localhost, and wavefront-proxy on localhost
 exporters:
   otlp/tempo:
     endpoint: host.docker.internal:14317

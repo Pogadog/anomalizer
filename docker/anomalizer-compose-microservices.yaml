@@ -19,6 +19,10 @@ services:
       - anomalizer-images-1
       - anomalizer-images-2
       - anomalizer-correlator
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
 
   anomalizer-images-0:
     image: ghcr.io/pogadog/anomalizer-multi:latest
@@ -27,11 +31,16 @@ services:
       - X-LOKI=http://host.docker.internal:3100
       - ANOMALIZER_IMAGES_PORT=8061
       - ANOMALIZER_ENGINE=http://anomalizer-engine:8060
+      - ANOMALIZER_API=http://anomalizer-api:8056
       - ANOMALIZER_CORRELATOR=http://anomalizer-correlator:8062
     entrypoint:
       python anomalizer-images.py
     depends_on:
       - anomalizer-engine
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
 
   anomalizer-images-1:
     image: ghcr.io/pogadog/anomalizer-multi:latest
@@ -40,11 +49,16 @@ services:
       - X-LOKI=http://host.docker.internal:3100
       - ANOMALIZER_IMAGES_PORT=8061
       - ANOMALIZER_ENGINE=http://anomalizer-engine:8060
+      - ANOMALIZER_API=http://anomalizer-api:8056
       - ANOMALIZER_CORRELATOR=http://anomalizer-correlator:8062
     entrypoint:
       python anomalizer-images.py
     depends_on:
       - anomalizer-engine
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
 
   anomalizer-images-2:
     image: ghcr.io/pogadog/anomalizer-multi:latest
@@ -53,40 +67,57 @@ services:
       - X-LOKI=http://host.docker.internal:3100
       - ANOMALIZER_IMAGES_PORT=8061
       - ANOMALIZER_ENGINE=http://anomalizer-engine:8060
+      - ANOMALIZER_API=http://anomalizer-api:8056
       - ANOMALIZER_CORRELATOR=http://anomalizer-correlator:8062
     entrypoint:
       python anomalizer-images.py
     depends_on:
       - anomalizer-engine
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
 
   anomalizer-correlator:
     image: ghcr.io/pogadog/anomalizer-multi:latest
     environment:
       - X-LOKI=http://host.docker.internal:3100
-      - ANOMALIZER_ENGINE=http://anomalizer-engine:8060
+      - ANOMALIZER_API=http://anomalizer-api:8056
     entrypoint:
       python anomalizer-correlator.py
     depends_on:
       - anomalizer-engine
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
 
   anomalizer-engine:
     image: ghcr.io/pogadog/anomalizer-multi:latest
     entrypoint:
       python anomalizer-engine.py
     environment:
-      - PROMETHEUS=mini-prom:9090 # change this port to point to another prometheus.
+      - PROMETHEUS=http://mini-prom:19090 # change this port to point to another prometheus.
       - X-LOKI=http://host.docker.internal:3100
     ports:
       - "8060:8060"
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
 
   mini-prom:
     image: ghcr.io/pogadog/anomalizer-multi:latest
     ports:
-      - "9090:9090"
+      - "19090:19090"
     entrypoint:
       python mini-prom.py
     environment:
       - X-LOKI=http://host.docker.internal:3100
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
 
   anomalizer-load-test:
     image: ghcr.io/pogadog/anomalizer-multi:latest
@@ -94,5 +125,9 @@ services:
       - "7070:7070"
     entrypoint:
       python load-test.py
+    logging:
+      driver: loki
+      options:
+        loki-url: 'http://localhost:3100/loki/api/v1/push'
 
 

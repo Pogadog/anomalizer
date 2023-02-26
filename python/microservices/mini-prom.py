@@ -220,7 +220,8 @@ def query_range():
         return make_response({'status': 'failed', 'message': 'unable to process prometheus query: ' + query}, 500)
 
 PATH = os.environ.get('MICROSERVICES', '')
-print('MICROSERVICES=' + PATH)
+MINIPROM_YAML = os.environ.get('MINIPROM_YAML', 'mini-prom.yaml')
+print('MICROSERVICES=' + PATH + ', MINIPROM_YAML=' + MINIPROM_YAML)
 
 from google.cloud import storage
 def write_to_cloud (upload):
@@ -245,7 +246,7 @@ def read_from_cloud (name):
 def miniprom():
     global CONFIG
     # load prometheus.yaml and start scraping it
-    with open(PATH + 'mini-prom.yaml') as file:
+    with open(PATH + MINIPROM_YAML) as file:
         CONFIG = yaml.safe_load(file)
 
     print(yaml.dump(CONFIG))
@@ -297,7 +298,7 @@ def miniprom():
                         #for name in METRICS_BY_NAME['metrics']:
                         #    print(name + ': ' + str(METRICS_BY_NAME['metrics'][name]))
                     except Exception as x:
-                        print('scrape ' + target + ' failed: ' + str(x))
+                        print('scrape job=' + job + ', target=' + target + ' failed: ' + str(x))
                         # shared.trace(x, msg='scrape exception')
                         # traceback.print_exc()
                         TARGET_STATUS[job][target]['status'] = 'down'

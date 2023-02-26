@@ -114,6 +114,8 @@ services:
       python mini-prom.py
     environment:
       - X-LOKI=http://host.docker.internal:3100
+    volumes:
+      - ../python/microservices/mini-prom.yaml:/microservices/mini-prom.yaml
     logging:
       driver: loki
       options:

@@ -1,7 +1,7 @@
 # Simple deployment for anomalizer.
 # TODO: make it detect changes in the source and relaunch.
 
-import subprocess, time, os
+import subprocess, time, os, sys
 import traceback, argparse
 
 import shared
@@ -30,16 +30,16 @@ try:
         processes.append(subprocess.Popen(CMD.replace('{service}', 'load-test').split() + [PATH + 'load-test.py'], close_fds=False))
     ENV['SHARDS'] = str(os.environ.get('E_SHARDS', 1))
     for i in range(0, int(ENV['SHARDS'])):
-        processes.append(subprocess.Popen(CMD.replace('{service}', 'anomalizer-engine-' + str(i)).split() + [PATH + 'anomalizer-engine.py'], close_fds=False, env=ENV.update({'PROMETHEUS': PROMETHEUS, 'E_SHARD': str(i)})))
+        processes.append(subprocess.Popen(CMD.replace('{service}', 'anomalizer-engine-' + str(i)).split() + [PATH + 'anomalizer-engine.py'] + sys.argv[1:], close_fds=False, env=ENV.update({'PROMETHEUS': PROMETHEUS, 'E_SHARD': str(i)})))
     time.sleep(SLEEP)
     ENV['SHARDS'] = str(os.environ.get('I_SHARDS', 1))
     for i in range(0, int(ENV['SHARDS'])):
-        processes.append(subprocess.Popen(CMD.replace('{service}', 'anomalizer-images-' + str(i)).split() + [PATH + 'anomalizer-images.py'], close_fds=False, env=ENV.update({'I_SHARD': str(i)})))
+        processes.append(subprocess.Popen(CMD.replace('{service}', 'anomalizer-images-' + str(i)).split() + [PATH + 'anomalizer-images.py'] + sys.argv[1:], close_fds=False, env=ENV.update({'I_SHARD': str(i)})))
     ENV['SHARDS'] = str(os.environ.get('C_SHARDS', 1))
     for i in range(0, int(ENV['SHARDS'])):
-        processes.append(subprocess.Popen(CMD.replace('{service}', 'anomalizer-correlator-' + str(i)).split() + [PATH + 'anomalizer-correlator.py'], close_fds=False, env=ENV.update({'C_SHARD': str(i)})))
+        processes.append(subprocess.Popen(CMD.replace('{service}', 'anomalizer-correlator-' + str(i)).split() + [PATH + 'anomalizer-correlator.py'] + sys.argv[1:], close_fds=False, env=ENV.update({'C_SHARD': str(i)})))
     time.sleep(SLEEP)
-    processes.append(subprocess.Popen(CMD.replace('{service}', 'anomalizer-api').split() + [PATH + 'anomalizer-api.py'], close_fds=False))
+    processes.append(subprocess.Popen(CMD.replace('{service}', 'anomalizer-api').split() + [PATH + 'anomalizer-api.py'] + sys.argv[1:], close_fds=False))
 
     if args.mini_prom:
         # bring up mini-prom last so it doesn't scrape endpoints that are not up.

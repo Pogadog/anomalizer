@@ -24,12 +24,12 @@ shared.hook_logging('images-' + str(SHARD))
 
 from prometheus_client import Summary, Gauge
 
-S_TO_IMAGE = shared.S_TO_IMAGE.labels('images')
+S_TO_IMAGE = shared.S_TO_IMAGE
 G_TO_IMAGE = Gauge('anomalizer_to_image_time_gauge', 'gauge of to-image time')
 S_FIGURE = Summary('anomalizer_figures_seconds', 'time to compute figures')
 
 G_NUM_IMAGES = Gauge('anomalizer_num_images', 'number of images in memory')
-S_POLL_METRICS = shared.S_POLL_METRICS.labels('images')
+S_POLL_METRICS = shared.S_POLL_METRICS
 
 from flask import jsonify, request, make_response
 from apiflask import APIFlask, Schema
@@ -285,7 +285,7 @@ IMG_FMT = 'svg'
 
 import urllib.parse
 
-@S_TO_IMAGE.time() #.labels('images')
+@S_TO_IMAGE.time()
 def to_image(fig, id=None):
     start = time.time()
     try:
@@ -427,7 +427,7 @@ def poll_images():
             except Exception as x:
                 shared.trace(x)
                 ANOMALIZER_ENGINE_HEALTHY = False
-            shared.G_POLL_METRICS.labels('images').set(time.time()-start)
+            shared.G_POLL_METRICS.set(time.time()-start)
             G_NUM_IMAGES.set(len(IMAGES))
         time.sleep(1)
 

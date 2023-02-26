@@ -42,10 +42,10 @@ T_CORRELATE = shared.Timer('anomalizer_correlation_time_timer', 'time to compute
 T_CORRELATE_ALL = T_CORRELATE.labels(['all'])
 T_CORRELATE_ID = T_CORRELATE.labels(['id'])
 
-S_TO_IMAGE = shared.S_TO_IMAGE.labels('correlator')
-S_POLL_METRICS = shared.S_POLL_METRICS.labels('correlator-' + str(C_SHARD))
+S_TO_IMAGE = shared.S_TO_IMAGE
+S_POLL_METRICS = shared.S_POLL_METRICS
 
-@S_TO_IMAGE.time() #.labels('correlator')
+@S_TO_IMAGE.time()
 def to_image(fig, id=None):
     return fig.to_image(format='jpg')
 

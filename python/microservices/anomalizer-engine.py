@@ -24,7 +24,7 @@ warnings.filterwarnings('ignore', category=RuntimeWarning, module='numpy')
 warnings.simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 H_PROMETHEUS_CALL = Histogram('anomalizer_prometheus_request_latency', 'request latency for prometheus metrics')
-S_POLL_METRICS = shared.S_POLL_METRICS.labels('engine')
+S_POLL_METRICS = shared.S_POLL_METRICS
 
 import logging
 logging.getLogger("werkzeug").disabled = True
@@ -32,10 +32,10 @@ logging.getLogger("werkzeug").disabled = True
 app = APIFlask(__name__, title='anomalizer-engine')
 app.json_encoder = shared.SetEncoder
 
-metrics = PrometheusMetrics(app, path='/flask/metrics')
-
 SHARDS = shared.E_SHARDS
 SHARD = shared.E_SHARD
+
+flask_metrics = PrometheusMetrics(app, path='/flask/metrics')
 
 shared.hook_logging('engine-' + str(SHARD))
 
@@ -51,7 +51,7 @@ HIGH_CARD = 100
 MED_CARD = 20
 
 LIMIT = float(os.environ.get('LIMIT', shared.LIMITS[-2]))
-FILTER = '_created|_count'
+FILTER = '(_created|_count),'
 INVERT = True
 FILTER2 = ''
 INVERT2 = False
@@ -497,7 +497,7 @@ def get_metrics(metric, id, _type=None, _rate=False):
         # big step first to filter.
         labels, values, query = get_prometheus(metric+filter_tags, _rate, _type, STEP*20)
         cardinality = 'high' if labels and len(labels) > HIGH_CARD else 'medium' if labels and len(labels) > MED_CARD else 'low'
-        match = metric + json.dumps({'tags': labels}) + ',' + _type + ',' + json.dumps({'cardinality': cardinality})
+        match = metric + ',' + json.dumps({'tags': labels}) + ',' + _type + ',' + json.dumps({'cardinality': cardinality})
         if filter:
             if (re.match('.*(' + filter + ').*', match)==None) != INVERT:
                 return None, None, None, None
@@ -708,7 +708,7 @@ CLASSIFY_DATA = pd.DataFrame()
 INDEX = 0
 INDEX_CLUSTER_SIZE = 10
 
-@S_POLL_METRICS.time() #.labels('engine')
+@S_POLL_METRICS.time()
 def poll_metrics():
     global METRICS_DROPPED, METRICS_PROCESSED, METRICS_AVAILABLE, METRICS_TOTAL_TS
     METRICS_AVAILABLE = METRICS_PROCESSED-METRICS_DROPPED
@@ -737,7 +737,7 @@ def poll_metrics():
         try:
             _type = METRIC_TYPES.get(metric, '')
             if shared.args.verbose:
-                print('poll-metrics: ' + metric + ': ' + _type)
+                print('poll_metrics: ' + metric + ': ' + _type)
             if shared.shard(id, SHARDS) != SHARD:
                 continue
 
@@ -825,7 +825,7 @@ def poll_metrics():
                         STATS[id] = stats
 
             else:
-                #print('dropping ' + metric)
+                print('poll_metrics: dropping ' + metric)
                 METRICS_DROPPED += 1
                 cleanup(id)
 

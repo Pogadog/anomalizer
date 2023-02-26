@@ -22,6 +22,7 @@ import logging
 logging.getLogger("werkzeug").disabled = True
 
 from prometheus_client import generate_latest
+from prometheus_client.parser import text_string_to_metric_families
 
 ANOMALIZER_ENGINE_HEALTHY = Health.UNKNOWN
 ANOMALIZER_IMAGES_HEALTHY = Health.UNKNOWN
@@ -116,7 +117,7 @@ def _merge(a, b, _div=1):
     return a
 
 app = APIFlask(__name__, title='anomalizer-api', static_folder='web-build')
-metrics = PrometheusMetrics(app, path='/flask/metrics')
+metrics = PrometheusMetrics(app, path='/flask/metrics', default_labels={'service': 'anomalizer-api'})
 
 PORT = int(os.environ.get('ANOMALIZER_API_PORT', '8056'))
 
@@ -268,51 +269,53 @@ def figure_id(id):
     endpoint = shared.shard_endpoint(ANOMALIZER_IMAGES, shard)
     return _proxy(endpoint)
 
-@app.route('/prometheus/metrics')
-def prometheus():
-    r1 = _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, shared.E_SHARD))
-    lines = ''
-    lines += '#HELP anomalizer_engine     ************* anomalizer-engine prometheus metrics\n'
-    lines += r1.data.decode() if r1 else '# HELP anomalizer-engine no metrics\n'
-
-    response = make_response(lines, 200)
-    response.mimetype = "text/plain"
-    return response
-
 @app.route('/api/v1/targets')
 def targets():
     return _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, shared.E_SHARD))
 
+class MetricsRegistry():
+    def __init__(self):
+        self.metrics = []
+    def add(self, metric):
+        self.metrics += [metric]
+    def collect(self):
+        return self.metrics
+
 @app.route('/metrics')
 def metrics():
+    lines = ''
+    service_metrics = {}
     # gather the downstreams via the proxy.
-    r1 =[]
+    registry = MetricsRegistry()
     for shard in range(shared.E_SHARDS):
         result = _proxy(shared.shard_endpoint(ANOMALIZER_ENGINE, shard))
         if result:
-            r1 += [result]
-    r2 = []
+            families = text_string_to_metric_families(result.data.decode())
+            for family in families:
+                for sample in family.samples:
+                    sample.labels.update({'service': 'anomalizer-engine-' + str(shard)})
+                registry.add(family)
     for shard in range(shared.I_SHARDS):
         result = _proxy(shared.shard_endpoint(ANOMALIZER_IMAGES, shard))
         if result:
-            r2 += [result]
-    r3 = []
+            families = text_string_to_metric_families(result.data.decode())
+            for family in families:
+                for sample in family.samples:
+                    sample.labels.update({'service': 'anomalizer-images-' + str(shard)})
+                registry.add(family)
     for shard in range(shared.C_SHARDS):
         result = _proxy(shared.shard_endpoint(ANOMALIZER_CORRELATOR, shard))
         if result:
-            r3 += [result]
+            families = text_string_to_metric_families(result.data.decode())
+            for family in families:
+                for sample in family.samples:
+                    sample.labels.update({'service': 'anomalizer-correlator-' + str(shard)})
+                registry.add(family)
+
+    # add in service metrics.
+    lines += generate_latest(registry).decode()
 
     # add in our metrics.
-    lines = ''
-    for shard, r in enumerate(r1):
-        lines += '#HELP anomalizer_engine     ************* anomalizer-engine metrics\n'
-        lines += r.data.decode() if r else '# HELP anomalizer-engine-' + str(shard) + ' no metrics\n'
-    for shard, r in enumerate(r2):
-        lines += '#HELP anomalizer_images     ************* anomalizer-images-' + str(shard) + ' metrics \n'
-        lines += r.data.decode() if r else '# HELP anomalizer-images-' + str(shard) + ' no metrics\n'
-    for shard, r in enumerate(r3):
-        lines += '#HELP anomalizer_correlator     ************* anomalizer-correlator-' + str(shard) + ' metrics \n'
-        lines += r.data.decode() if r else '# HELP anomalizer-correlator-' + str(shard) + ' no metrics\n'
     latest = generate_latest()
     lines += latest.decode()
 

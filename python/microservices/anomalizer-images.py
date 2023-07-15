@@ -130,6 +130,14 @@ def draw_df(df, metric):
     fig.update_layout(showlegend=True)
     return fig
 
+def draw_hist(df, metric):
+    fig = px.histogram(df, title=metric)
+    fig.update_layout(template=None, height=400, width=400, autosize=False, font={'size': 11}, title={'x': 0.05, 'xanchor': 'left'})
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=False)
+    fig.update_layout(showlegend=True)
+    return fig
+
 def to_kv(tag):
     result = ''
     for k,v in json.loads(tag).items():
@@ -350,10 +358,16 @@ def poll_images():
                         fig = draw_df(dfp, metric)
 
                         FIGURES[id] = fig
-
                         img_b64 = to_image(fig)
+                        IMAGES[id] = {'type': type, 'plot': 'timeseries', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric + '#ts', 'cardinality': cardinality, 'tags': labels, 'stats': stats}
 
-                        IMAGES[id] = {'type': type, 'plot': 'timeseries', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric, 'cardinality': cardinality, 'tags': labels, 'stats': stats}
+                        # histograms (based on timeseries)
+                        id = id + '.hist'
+                        fig = draw_hist(dfp, metric)
+                        if fig:
+                            FIGURES[id] = fig
+                            img_b64 = to_image(fig)
+                            IMAGES[id] = {'type': type, 'plot': 'timeseries', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric + '#hist', 'cardinality': cardinality, 'tags': labels, 'stats': stats}
 
                     except Exception as x:
                         shared.trace(x, msg='error polling image: ')
@@ -405,7 +419,7 @@ def poll_images():
                         stats = x['stats']
                         status = x['status']
 
-                        IMAGES[scat_id + '.' + str(i)] = {'type': type, 'plot': 'scatter', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric, 'cardinality': cardinality, 'tags': labels, 'stats': stats}
+                        IMAGES[scat_id + '.' + str(i)] = {'type': type, 'plot': 'scatter', 'id': id, 'img': img_b64, 'prometheus': query, 'status': status, 'features': features, 'metric': metric + '#scat', 'cardinality': cardinality, 'tags': labels, 'stats': stats}
 
                 # Grid images
                 dfs = DATAFRAMES

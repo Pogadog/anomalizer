@@ -41,7 +41,6 @@ import logging
 logging.getLogger("werkzeug").disabled = True
 
 # rest endpoints.
-ANOMALIZER_ENGINE = os.environ.get('ANOMALIZER_ENGINE', 'http://localhost:8060')
 ANOMALIZER_API = os.environ.get('ANOMALIZER_API', 'http://localhost:8056')
 
 ANOMALIZER_ENGINE_HEALTHY = False

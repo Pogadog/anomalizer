@@ -129,6 +129,7 @@ def query_range():
         NEW = True
         if NEW:
             try:
+                # parse and evaluate query
                 parsed = prom_parser.parse(query)
                 evaluated = prom_parser.eval_tree({'metrics': METRICS_BY_NAME['metrics'], 'types': METRICS_BY_NAME.get('types', {})}, parsed)
                 # resample the data to match the step.
@@ -150,6 +151,7 @@ def query_range():
                         _metric.update(tags)
                         result += [{'metric': _metric, 'values': values}]
             except Exception as x:
+                print('ERROR: ' + str(x) + ', query=' + query + ', url=' + request.url)
                 shared.trace(x)
             return jsonify(blob)
         else:

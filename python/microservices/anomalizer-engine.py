@@ -825,7 +825,7 @@ def poll_metrics():
                         STATS[id] = stats
 
             else:
-                print('poll_metrics: dropping ' + metric)
+                print('poll_metrics: dropping ' + metric + ' because insufficient metrics')
                 METRICS_DROPPED += 1
                 cleanup(id)
 

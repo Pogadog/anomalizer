@@ -1,8 +1,9 @@
 extra-metrics:
-  memory_percent:
-    - query: sum(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)*100
-      help: Memory Usage %
-      type: gauge
+  # currently failing -- fix later
+  #memory_percent:
+  #  - query: sum(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)*100
+  #    help: Memory Usage %
+  #    type: gauge
   cpu_per_active_thread:
     - query: anomalizer_cpu/anomalizer_active_threads
       help: CPU utilization per thread active

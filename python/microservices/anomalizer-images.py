@@ -130,8 +130,10 @@ def draw_df(df, metric):
     fig.update_layout(showlegend=True)
     return fig
 
+N_HIST = shared.N_HIST
+
 def draw_hist(df, metric):
-    fig = px.histogram(df, title=metric)
+    fig = px.histogram(df, title=metric, nbins=N_HIST)
     fig.update_layout(template=None, height=400, width=400, autosize=False, font={'size': 11}, title={'x': 0.05, 'xanchor': 'left'})
     fig.update_xaxes(showgrid=False)
     fig.update_yaxes(showgrid=False)
@@ -342,8 +344,8 @@ def poll_images():
                     try:
                         labels = dataframes['labels'][id]
                         id_map = dataframes['id_map']
-                        stats = dataframes['stats'][id]
-                        features = dataframes['features'][id]
+                        stats = dataframes['stats'].get(id, [])
+                        features = dataframes['features'].get(id, [])
                         query  = dataframes['queries'][id]
                         cardinality = dataframes['cardinalities'][id]
                         metric_types = dataframes['metric_types']

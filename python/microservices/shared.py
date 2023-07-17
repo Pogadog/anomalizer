@@ -13,6 +13,7 @@ parser.add_argument('--verbose', action='store_true', help='show verbose message
 args = parser.parse_known_args()[0]
 
 LIMITS = [0.1, 0.01, 0.001, 0.0001, 0.00001, 0.0000001, 0.00000001, 0.000000001, 0]
+N_HIST = 11
 
 C_EXCEPTIONS_HANDLED = Counter('anomalizer_num_exceptions_handled', 'number of exeptions handled', ['exception'])
 S_TO_IMAGE = Summary('anomalizer_to_image_time', 'time to convert images')

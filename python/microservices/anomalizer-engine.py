@@ -653,28 +653,29 @@ METRICS_TOTAL_TS = 0
 METRIC_TAGS=defaultdict(Counter)
 METRIC_SUMMARY=Counter()
 
-N_HIST = 40
+N_HIST = shared.N_HIST
 class DistributionFitter:
     def __init__(self):
         self.prototypes = pd.DataFrame()
         self.bins = np.arange(0,N_HIST)
         # un-scaled normal: range -6..6 for stdev==1, centered at 0
         x = (self.bins-N_HIST//2)/6
-        y = np.exp(-0.5*x**2) # normal-variance
+        y = np.exp(-(1*x)**2) # normal-variance
         self.prototypes['gaussian-0'] = pd.DataFrame(y)
-        y = np.exp(-x**2) # medium-variance
+        y = np.exp(-(2*x)**2) # medium-variance
         self.prototypes['gaussian-1'] = pd.DataFrame(y)
-        y = np.exp(-2*x**2) # low-variance
+        y = np.exp(-(4*x)**2) # low-variance
         self.prototypes['gaussian-2'] = pd.DataFrame(y)
         x = self.bins/3
-        y = np.exp(-x)
-        self.prototypes['right-tailed'] = pd.DataFrame(y)
-        self.prototypes['left-tailed'] = pd.DataFrame(np.flipud(y))
+        y = np.exp(-(2*x)*2)
+        self.prototypes['left-tailed'] = pd.DataFrame(y) # should be named left-skewed
+        self.prototypes['right-tailed'] = pd.DataFrame(np.flipud(y)) # should be named right-skewed
 
         x = (self.bins-N_HIST//2)/6
-        y1 = np.exp(-(x-3.33)**4)
-        y2 = np.exp(-(x+3.66)**4)
+        y1 = np.exp(-(x-3.33)**2)
+        y2 = np.exp(-(x+3.33)**2)
         self.prototypes['bi-modal']  = pd.DataFrame(y1+y2)
+        pass
         #import matplotlib.pyplot as plt
         #for k,v in self.prototypes.items():
         #    plt.plot(v)
@@ -684,21 +685,24 @@ class DistributionFitter:
         # compute histogram of dataframe, column by column, then do a fit against the prototypes using
         # pearson correlation.
         best = {}
-        for k, v in df.iteritems():
-            try:
-                npdf = v.fillna(0).to_numpy()
-                hist = np.histogram(npdf, N_HIST)
-                hdf = pd.DataFrame(hist[0])
-                corr = self.prototypes.corrwith(hdf.iloc[:,0])
-                #print('corr=' + str(corr))
-                if corr.max() > 0.7:
-                    best[k] = corr.idxmax()
-                    if 'gaussian' in corr.idxmax():
-                        best[k] = 'gaussian'
-                #print('best=' + str(best))
-            except Exception as x:
-                # don't know, don't care.
-                print('error computing histogram: metric=' + metric + ': ' + repr(x), sys.stderr)
+        if df.shape[0] > N_HIST:
+            for k, v in df.iteritems():
+                try:
+                    if v.std() > LIMIT:
+                        npdf = v.fillna(0).to_numpy()
+                        hist = np.histogram(npdf, N_HIST)
+                        hdf = pd.DataFrame(hist[0])
+                        corr = self.prototypes.corrwith(hdf.iloc[:,0])
+                        #print('corr=' + str(corr))
+                        if corr.max() > 0.7:
+                            best[k] = corr.idxmax()
+                            # TODO: backward compatible: remove when plugin is updated
+                            if 'gaussian' in corr.idxmax():
+                                best[k] = 'gaussian'
+                        #print('best=' + str(best))
+                except Exception as x:
+                    # don't know, don't care.
+                    print('error computing histogram: metric=' + metric + ': ' + repr(x), sys.stderr)
         return best
 
 
@@ -837,7 +841,11 @@ def poll_metrics():
 
     # compute after polling all metrics to allow for overall scaling.
     global INDEX
+    max_len = 0
     for id in DATAFRAMES:
+        _len = DATAFRAMES[id].shape[0]
+        if _len > max_len:
+            max_len = _len
         stats = STATS.get(id, {})
         features = FEATURES.get(id, {})
         idi = id + '.' + str(INDEX)
@@ -845,6 +853,8 @@ def poll_metrics():
         CLASSIFY_DATA.loc['increasing', idi] = features.get('increasing', {}).get('increase', 0)
         CLASSIFY_DATA.loc['decreasing', idi] = abs(features.get('decreasing', {}).get('decrease', 0))
         CLASSIFY_DATA.loc['spike', idi] = features.get('spike', 0)
+
+    print('DATAFRAMES.max_len=' + str(max_len))
 
     # normalize
     scale = CLASSIFY_DATA.max(axis=1)
